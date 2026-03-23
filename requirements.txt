@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+paramiko
+jinja2
+python-dotenv==1.2.1
