@@ -32,8 +32,8 @@ def start_service(req: ActionRequest):
         with SSHClientWrapper(req.host, req.port, req.username, req.password) as ssh:
             # 1. 홈경로 프로파일(.ora*, .profile* 등)의 '내용'을 쫙 스캔하여 ORACLE_SID=해당숫자가 적힌 진짜 파일을 찾아 로드, 없으면 기본 profile
             sid = req.instance_id if req.instance_id and req.instance_id != "default" else "ORCL"
-            profile_cmd = f"SID_NUM=$(echo '{sid}' | sed 's/^[Oo][Rr][Aa]//' | sed 's/^[Hh][Pp]//' | sed 's/^[Cc][Dd][Bb]//'); PROFILE=$(grep -i -l \"ORACLE_SID.*$SID_NUM\" ~/.ora* ~/.profile* ~/.bash_profile 2>/dev/null | grep -v \"_empty\" | head -n 1); if [ -n \"$PROFILE\" ]; then . \"$PROFILE\"; else . ~/.bash_profile 2>/dev/null; fi"
-            cmd = f'{profile_cmd} && export ORACLE_SID={sid} && lsnrctl start && echo "startup;" | sqlplus -s / as sysdba'
+            profile_cmd = f"SID_NUM=$(echo '{sid}' | sed 's/^[Oo][Rr][Aa]//' | sed 's/^[Hh][Pp]//' | sed 's/^[Cc][Dd][Bb]//'); PROFILE=$(grep -i -l \"ORACLE_SID.*$SID_NUM\" ~/.ora* ~/.profile* ~/.bash_profile 2>/dev/null | grep -v \"_empty\" | head -n 1); if [ -n \"$PROFILE\" ]; then . \"$PROFILE\" 2>/dev/null || true; else . ~/.bash_profile 2>/dev/null || true; fi"
+            cmd = f'{profile_cmd}; export ORACLE_SID={sid}; lsnrctl start; echo "startup;" | sqlplus -s / as sysdba'
             res = ssh.execute_command(
                 process_user="oracle", 
                 command=cmd
@@ -48,8 +48,8 @@ def stop_service(req: ActionRequest):
         with SSHClientWrapper(req.host, req.port, req.username, req.password) as ssh:
             # 1. 홈경로 프로파일(.ora*, .profile* 등)의 '내용'을 쫙 스캔하여 ORACLE_SID=해당숫자가 적힌 진짜 파일을 찾아 로드, 없으면 기본 profile
             sid = req.instance_id if req.instance_id and req.instance_id != "default" else "ORCL"
-            profile_cmd = f"SID_NUM=$(echo '{sid}' | sed 's/^[Oo][Rr][Aa]//' | sed 's/^[Hh][Pp]//' | sed 's/^[Cc][Dd][Bb]//'); PROFILE=$(grep -i -l \"ORACLE_SID.*$SID_NUM\" ~/.ora* ~/.profile* ~/.bash_profile 2>/dev/null | grep -v \"_empty\" | head -n 1); if [ -n \"$PROFILE\" ]; then . \"$PROFILE\"; else . ~/.bash_profile 2>/dev/null; fi"
-            cmd = f'{profile_cmd} && export ORACLE_SID={sid} && lsnrctl stop && echo "shutdown immediate;" | sqlplus -s / as sysdba'
+            profile_cmd = f"SID_NUM=$(echo '{sid}' | sed 's/^[Oo][Rr][Aa]//' | sed 's/^[Hh][Pp]//' | sed 's/^[Cc][Dd][Bb]//'); PROFILE=$(grep -i -l \"ORACLE_SID.*$SID_NUM\" ~/.ora* ~/.profile* ~/.bash_profile 2>/dev/null | grep -v \"_empty\" | head -n 1); if [ -n \"$PROFILE\" ]; then . \"$PROFILE\" 2>/dev/null || true; else . ~/.bash_profile 2>/dev/null || true; fi"
+            cmd = f'{profile_cmd}; export ORACLE_SID={sid}; lsnrctl stop; echo "shutdown immediate;" | sqlplus -s / as sysdba'
             res = ssh.execute_command(
                 process_user="oracle", 
                 command=cmd

@@ -15,7 +15,9 @@ class SSHClientWrapper:
             port=self.port,
             username=self.username,
             password=self.password,
-            timeout=10
+            timeout=10,
+            look_for_keys=False,
+            allow_agent=False
         )
         return self
 
@@ -28,13 +30,17 @@ class SSHClientWrapper:
         로그인한 계정과 대상 계정이 같다면 권한 전환을 생략합니다.
         """
         if process_user and process_user != self.username:
-            # 타겟 계정이 다르면 sudo/su 를 시도 (비밀번호 입력창에 막히는 것을 방지하기 위해 간단한 timeout 처리 혹은 echo 필요)
-            full_command = f'sudo su - {process_user} -c "{command}"'
+            # 타겟 계정이 다르면 sudo/su 를 시도
+            # 명령어 텍스트 내부의 작은따옴표(') 및 큰따옴표(") 충돌을 피하기 위해 POSIX 호환 이스케이프 처리
+            # command 내용을 작은따옴표로 완전히 감싸 서버로 보내며, 내부의 작은따옴표는 '\'' 형태로 끊어서 연결합니다.
+            escaped_command = command.replace("'", "'\\''")
+            full_command = f"sudo su - {process_user} -c '{escaped_command}'"
         else:
             # 로그인한 계정과 같거나, 대상 계정이 없으면 그대로 실행
             if process_user == self.username:
                 # 환경변수 로딩을 위해 bash 연동
-                full_command = f'bash -lc "{command}"'
+                escaped_command = command.replace("'", "'\\''")
+                full_command = f"bash -lc '{escaped_command}'"
             else:
                 full_command = command
 

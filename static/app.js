@@ -62,17 +62,21 @@ function renderDashboard(services) {
         return;
     }
 
-    const types = ['oracle', 'postgres', 'rts'];
+    const types = ['oracle', 'postgres', 'rts', 'dg', 'pjs'];
     const typeNames = {
         'oracle': 'Oracle DB',
         'postgres': 'PostgreSQL',
-        'rts': 'RTS Process'
+        'rts': 'RTS Process',
+        'dg': 'DataGather',
+        'pjs': 'PlatformJS'
     };
 
     const typeIcons = {
         'oracle': `<div style="width: 1.6rem; height: 1.6rem; background-color: #F80000; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 0.5rem;"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 65%; height: 65%;"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg></div>`,
         'postgres': `<img src="https://upload.wikimedia.org/wikipedia/commons/2/29/Postgresql_elephant.svg" alt="PostgreSQL" style="height: 1.6rem; margin-right: 0.5rem; filter: drop-shadow(0 0 2px rgba(255,255,255,0.2));">`,
-        'rts': `<img src="/static/maxgauge.png" alt="MaxGauge" style="height: 1.6rem; object-fit: contain; margin-right: 0.5rem;" onerror="this.style.display='none'">`
+        'rts': `<img src="/static/maxgauge.png" alt="MaxGauge RTS" style="height: 1.6rem; object-fit: contain; margin-right: 0.5rem;" onerror="this.style.display='none'">`,
+        'dg': `<img src="/static/maxgauge.png" alt="MaxGauge DG" style="height: 1.6rem; object-fit: contain; margin-right: 0.5rem; filter: hue-rotate(180deg);" onerror="this.style.display='none'">`,
+        'pjs': `<img src="/static/maxgauge.png" alt="MaxGauge PJS" style="height: 1.6rem; object-fit: contain; margin-right: 0.5rem; filter: hue-rotate(90deg);" onerror="this.style.display='none'">`
     };
 
     types.forEach(type => {
@@ -85,16 +89,21 @@ function renderDashboard(services) {
 
         let instancesHtml = '';
         typeServices.forEach(srv => {
+            const pathInfo = srv.path ? `<div style="font-size: 0.75rem; color: #64748b; margin-top: 0.2rem; margin-left: 1.5rem; word-break: break-all;">${srv.path}</div>` : '';
+
             instancesHtml += `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                    <div style="font-weight: 500; color: #38bdf8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;" class="instance-item" data-id="${srv.instance_id}">
-                        <span id="dot-${cardId}-${srv.instance_id}" class="dot unknown" style="width: 10px; height: 10px; display: inline-block;"></span>
-                        ${srv.instance_id}
+                <div style="padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="font-weight: 500; color: #38bdf8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;" class="instance-item" data-id="${srv.instance_id}">
+                            <span id="dot-${cardId}-${srv.instance_id}" class="dot unknown" style="width: 10px; height: 10px; display: inline-block;"></span>
+                            ${srv.instance_id}
+                        </div>
+                        <div style="display: flex; flex-direction: row; gap: 0.5rem; flex-shrink: 0;">
+                            <button class="btn start-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; width: 60px;" onclick="controlService('${type}', 'start', '${srv.instance_id}', '${cardId}')">시작</button>
+                            <button class="btn stop-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; width: 60px;" onclick="controlService('${type}', 'stop', '${srv.instance_id}', '${cardId}')">정지</button>
+                        </div>
                     </div>
-                    <div style="display: flex; flex-direction: row; gap: 0.5rem; flex-shrink: 0;">
-                        <button class="btn start-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; width: 60px;" onclick="controlService('${type}', 'start', '${srv.instance_id}', '${cardId}')">시작</button>
-                        <button class="btn stop-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; width: 60px;" onclick="controlService('${type}', 'stop', '${srv.instance_id}', '${cardId}')">정지</button>
-                    </div>
+                    ${pathInfo}
                 </div>
             `;
         });
@@ -173,8 +182,26 @@ function updateStatusUI(cardId, statusResult, type) {
         if (statusResult.details) {
             if (type === 'oracle') {
                 isInstRunning = statusResult.details.includes(`ora_pmon_${instId}`);
-            } else if (type === 'rts') {
-                isInstRunning = statusResult.details.includes(`-c ${instId}`);
+            } else if (type === 'rts' || type === 'dg' || type === 'pjs') {
+                if (instId.includes('/')) {
+                    // 동일한 이름(SID)을 가진 가짜가 먼저 불 켜지는 착시 방지
+                    let pwdxValid = false;
+                    if (statusResult.details.includes('---PWDX_INFO---')) {
+                        const chunks = statusResult.details.split('---PWDX_INFO---');
+                        if (chunks.length > 1 && chunks[1].trim().length > 0) {
+                            pwdxValid = true;
+                        }
+                    }
+                    if (pwdxValid) {
+                        isInstRunning = statusResult.details.includes(instId);
+                    } else {
+                        // AIX 등에서 pwdx/procwdx 출력조차 실패한 최후의 보루 시, 기존처럼 짧은 SID 명칭으로라도 검사
+                        const shortInstId = instId.split('/').pop();
+                        isInstRunning = statusResult.details.includes(shortInstId);
+                    }
+                } else {
+                    isInstRunning = statusResult.details.includes(instId);
+                }
             } else {
                 isInstRunning = statusResult.details.includes(instId) || statusResult.details.includes('postgres');
             }
@@ -267,7 +294,9 @@ async function controlService(type, action, instanceId, cardId) {
         }
         card.querySelector('.log-output').innerText = logText.trim();
 
-        setTimeout(() => checkStatus(type, instanceId, cardId), 2500);
+        // 약간의 종료/기동 여유 시간(Delay)을 두어 확실히 상태가 안정된 직후에만 두 번 폴링
+        setTimeout(() => checkStatus(type, '', cardId), 2000);
+        setTimeout(() => checkStatus(type, '', cardId), 4500);
     } catch (err) {
         card.querySelector('.log-output').innerText = `[ERROR] Request failed.\n${err.message}`;
         setButtonsState(cardId, false);
