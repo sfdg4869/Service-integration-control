@@ -262,8 +262,9 @@ async function controlService(type, action, instanceId, cardId) {
     const cardUser = document.getElementById(`${cardId}-user`).value;
     const cardPass = document.getElementById(`${cardId}-pass`).value;
 
-    const runUser = cardUser || creds.username;
-    const runPass = cardPass || creds.password;
+    const useCardCredentials = cardUser && cardPass;
+    const runUser = useCardCredentials ? cardUser : creds.username;
+    const runPass = useCardCredentials ? cardPass : creds.password;
 
     const payload = {
         host: creds.host,
@@ -290,7 +291,8 @@ async function controlService(type, action, instanceId, cardId) {
         if (data.success) {
             logText = `[SUCCESS] Action completed.\n${data.logs}\n${data.error}`;
         } else {
-            logText = `[FAILED] Error occurred.\n${data.error || data.message}\n${data.logs || ''}`;
+            const reason = data.error || data.message || data.logs || 'No error text returned.';
+            logText = `[FAILED] Error occurred.\n${reason}\n${data.logs || ''}`;
         }
         card.querySelector('.log-output').innerText = logText.trim();
 

@@ -1,5 +1,6 @@
 fastapi
 uvicorn
 paramiko
+asyncssh
 jinja2
 python-dotenv==1.2.1
