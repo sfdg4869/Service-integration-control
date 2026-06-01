@@ -145,6 +145,66 @@ def _build_single_child_process(process_name: str, running_processes: set[str], 
     }
 
 
+def _sanitize_version_output(service_type: str, output: str) -> str:
+    lines = [(raw_line or "").strip() for raw_line in (output or "").splitlines()]
+
+    if service_type == "rts":
+        for line in lines:
+            lower_line = line.lower()
+            if not line:
+                continue
+            if "rts version:" in lower_line and "not found" not in lower_line:
+                return line
+
+    for line in lines:
+        if not line:
+            continue
+        lower_line = line.lower()
+        if lower_line.startswith(("run_user=", "rts_dir=", "dgs_dir=", "pjs_dir=", "mxg_rc=", "dgs_shell=", "pjs_shell=", "rts_shell=")):
+            continue
+        if lower_line.startswith(("picked up _java_options", "openjdk", "java version", "warning:")):
+            continue
+        if (
+            lower_line.startswith(("command not found", "no such file", "not found", "permission denied"))
+            or " not found" in lower_line
+            or ": not found" in lower_line
+            or "no such file" in lower_line
+            or "permission denied" in lower_line
+        ):
+            continue
+        return line
+    return ""
+
+
+def _build_version_command(service_type: str, instance_path: str) -> str:
+    if service_type == "rts":
+        attempts = [
+            'if command -v ksh >/dev/null 2>&1; then RTS_SHELL=ksh; else RTS_SHELL=sh; fi; [ -f "./.mxgrc" ] && RTS_SHELL="$RTS_SHELL" "$RTS_SHELL" -c \'. ./.mxgrc && mxg_rts -v\'',
+            'if command -v ksh >/dev/null 2>&1; then RTS_SHELL=ksh; else RTS_SHELL=sh; fi; [ -f "./.mxgrc" ] && RTS_SHELL="$RTS_SHELL" "$RTS_SHELL" -c \'. ./.mxgrc && mxg_rts --version\'',
+            '[ -x "./bin/mxg_rts" ] && ./bin/mxg_rts --version',
+            '[ -x "./bin/mxg_rts" ] && ./bin/mxg_rts -v',
+        ]
+    elif service_type == "dg":
+        attempts = [
+            '[ -f "./bin/DGServer.jar" ] && cd "./bin" && java -jar DGServer.jar -v',
+            '[ -f "./DGServer.jar" ] && java -jar DGServer.jar -v',
+        ]
+    else:
+        attempts = [
+            '[ -f "./svc/www/WEB-INF/lib/exem_platformjs.jar" ] && cd "./svc/www/WEB-INF/lib" && java -jar exem_platformjs.jar -v',
+            '[ -f "./WEB-INF/lib/exem_platformjs.jar" ] && cd "./WEB-INF/lib" && java -jar exem_platformjs.jar -v',
+        ]
+
+    joined_attempts = " || ".join(f"({attempt})" for attempt in attempts)
+    return f'''
+if [ -n "{instance_path}" ] && cd "{instance_path}" 2>/dev/null; then
+  ({joined_attempts}) 2>&1 || true
+else
+  echo ""
+fi
+'''
+
+
 def _extract_process_state_map(status_output: str, process_names: set[str]) -> dict[str, set[str]]:
     path_map = _parse_pwdx_section(status_output)
     state_map: dict[str, set[str]] = {}
@@ -327,12 +387,18 @@ async def discover_services(req: ActionRequest):
                 if needs_rts:
                     for p, meta in rts_instances.items():
                         updater_available = False
+                        version = "Unknown"
                         if p.startswith("/"):
                             updater_check = await ssh.execute_command(
                                 None,
                                 _build_updater_presence_command(p),
                             )
                             updater_available = updater_check["stdout"].strip().lower() == "yes"
+                            version_res = await ssh.execute_command(
+                                None,
+                                _build_version_command("rts", p),
+                            )
+                            version = _sanitize_version_output("rts", version_res["stdout"]) or "Unknown"
 
                         child_processes = _build_rts_child_processes(
                             set(),
@@ -345,6 +411,7 @@ async def discover_services(req: ActionRequest):
                                 "instance_id": p,
                                 "display_id": meta["name"],
                                 "path": p if p.startswith("/") else "",
+                                "version": version,
                                 "child_processes": child_processes,
                                 "run_as": actual_user,
                             }
@@ -356,6 +423,7 @@ async def discover_services(req: ActionRequest):
                                 "type": "rts",
                                 "name": "RTS (Default)",
                                 "instance_id": "default",
+                                "version": "Unknown",
                                 "child_processes": _build_rts_child_processes(set(), False),
                                 "run_as": actual_user,
                             }
@@ -364,12 +432,18 @@ async def discover_services(req: ActionRequest):
                 if needs_dg:
                     for p, meta in dg_instances.items():
                         obsd_available = False
+                        version = "Unknown"
                         if p.startswith("/"):
                             obsd_check = await ssh.execute_command(
                                 None,
                                 _build_obsd_presence_command(p),
                             )
                             obsd_available = obsd_check["stdout"].strip().lower() == "yes"
+                            version_res = await ssh.execute_command(
+                                None,
+                                _build_version_command("dg", p),
+                            )
+                            version = _sanitize_version_output("dg", version_res["stdout"]) or "Unknown"
                         services.append(
                             {
                                 "type": "dg",
@@ -377,6 +451,7 @@ async def discover_services(req: ActionRequest):
                                 "instance_id": p,
                                 "display_id": meta["name"],
                                 "path": p if p.startswith("/") else "",
+                                "version": version,
                                 "child_processes": _build_single_child_process(
                                     "obsd",
                                     set(),
@@ -392,6 +467,7 @@ async def discover_services(req: ActionRequest):
                                 "type": "dg",
                                 "name": "DG (Default)",
                                 "instance_id": "default",
+                                "version": "Unknown",
                                 "child_processes": _build_single_child_process("obsd", set(), False),
                                 "run_as": actual_user,
                             }
@@ -431,12 +507,18 @@ async def discover_services(req: ActionRequest):
 
                 for p, meta in pjs_instances.items():
                     obsd_available = False
+                    version = "Unknown"
                     if p.startswith("/"):
                         obsd_check = await ssh.execute_command(
                             None,
                             _build_obsd_presence_command(p),
                         )
                         obsd_available = obsd_check["stdout"].strip().lower() == "yes"
+                        version_res = await ssh.execute_command(
+                            None,
+                            _build_version_command("pjs", p),
+                        )
+                        version = _sanitize_version_output("pjs", version_res["stdout"]) or "Unknown"
                     services.append(
                         {
                             "type": "pjs",
@@ -444,6 +526,7 @@ async def discover_services(req: ActionRequest):
                             "instance_id": p,
                             "display_id": meta["name"],
                             "path": p if p.startswith("/") else "",
+                            "version": version,
                             "child_processes": _build_single_child_process(
                                 "obsd",
                                 set(),
@@ -458,6 +541,7 @@ async def discover_services(req: ActionRequest):
                             "type": "pjs",
                             "name": "PJS (Default)",
                             "instance_id": "default",
+                            "version": "Unknown",
                             "child_processes": _build_single_child_process("obsd", set(), False),
                             "run_as": actual_user,
                         }

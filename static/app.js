@@ -78,6 +78,7 @@ function renderDashboard(services) {
         'dg': `<img src="/static/maxgauge.png" alt="MaxGauge DG" style="height: 1.6rem; object-fit: contain; margin-right: 0.5rem; filter: hue-rotate(180deg);" onerror="this.style.display='none'">`,
         'pjs': `<img src="/static/maxgauge.png" alt="MaxGauge PJS" style="height: 1.6rem; object-fit: contain; margin-right: 0.5rem; filter: hue-rotate(90deg);" onerror="this.style.display='none'">`
     };
+    const searchableTypes = ['rts', 'dg', 'pjs'];
 
     types.forEach(type => {
         const typeServices = services.filter(s => s.type === type);
@@ -91,7 +92,17 @@ function renderDashboard(services) {
         typeServices.forEach(srv => {
             const displayId = srv.display_id || srv.instance_id;
             const pathInfo = srv.path ? `<div style="font-size: 0.75rem; color: #64748b; margin-top: 0.2rem; margin-left: 1.5rem; word-break: break-all;">${srv.path}</div>` : '';
+            const versionText = srv.version || 'Unknown';
+            const versionLabel = /version\s*:/i.test(versionText) ? versionText : `Version: ${versionText}`;
+            const versionInfo = `<div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.15rem; margin-left: 1.5rem;">${versionLabel}</div>`;
             const childProcesses = normalizeChildProcesses(type, srv.child_processes);
+            const searchText = [
+                displayId,
+                srv.instance_id,
+                srv.path || '',
+                versionText,
+                ...childProcesses.map(proc => `${proc.label}${proc.available ? '' : ' N/A'}`)
+            ].join(' ').toLowerCase().replace(/"/g, '&quot;');
             const companionInfo = childProcesses.length > 0
                 ? `<div style="margin-top: 0.35rem; margin-left: 1.5rem;">
                     <div style="font-size: 0.72rem; color: #64748b; margin-bottom: 0.3rem;">Child Processes</div>
@@ -105,7 +116,7 @@ function renderDashboard(services) {
                 : '';
 
             instancesHtml += `
-                <div style="padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <div class="instance-row" data-search="${searchText}" style="padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div style="font-weight: 500; color: #38bdf8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;" class="instance-item" data-id="${srv.instance_id}">
                             <span id="dot-${cardId}-${srv.instance_id}" class="dot unknown" style="width: 10px; height: 10px; display: inline-block;"></span>
@@ -117,10 +128,22 @@ function renderDashboard(services) {
                         </div>
                     </div>
                     ${pathInfo}
+                    ${versionInfo}
                     ${companionInfo}
                 </div>
             `;
         });
+
+        const searchHtml = searchableTypes.includes(type)
+            ? `<div class="card-search" style="margin-bottom: 1rem;">
+                    <input
+                        type="text"
+                        class="micro-input"
+                        placeholder="Search name, path, version, child process..."
+                        oninput="applyInstanceFilter('${cardId}', this.value)"
+                    >
+               </div>`
+            : '';
 
         const cardHTML = `
             <div class="service-card glass-panel" id="${cardId}">
@@ -143,8 +166,10 @@ function renderDashboard(services) {
                     <button class="btn check-btn" onclick="checkStatus('${type}', '', '${cardId}')">전체 상태 조회 (Check All)</button>
                 </div>
 
+                ${searchHtml}
                 <div class="instances-list" style="margin-bottom: 1rem; background: rgba(15,23,42,0.6); padding: 0 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
                     ${instancesHtml}
+                    <div class="instance-empty-state" style="display:none; padding: 1rem 0; color: #94a3b8; text-align: center;">검색 결과 없음</div>
                 </div>
 
                 <div class="terminal-log">
@@ -177,6 +202,29 @@ function normalizeChildProcesses(type, childProcesses) {
             available: Boolean(meta.available)
         };
     });
+}
+
+function applyInstanceFilter(cardId, query) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    const normalizedQuery = (query || '').trim().toLowerCase();
+    const rows = card.querySelectorAll('.instance-row');
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+        const haystack = (row.getAttribute('data-search') || '').toLowerCase();
+        const isMatch = !normalizedQuery || haystack.includes(normalizedQuery);
+        row.style.display = isMatch ? '' : 'none';
+        if (isMatch) {
+            visibleCount += 1;
+        }
+    });
+
+    const emptyState = card.querySelector('.instance-empty-state');
+    if (emptyState) {
+        emptyState.style.display = visibleCount === 0 ? 'block' : 'none';
+    }
 }
 
 function parsePwdxMap(statusDetails) {
