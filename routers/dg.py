@@ -8,6 +8,7 @@ from services.maxgauge_commands import (
     build_maxgauge_find_command,
 )
 import logging
+import re
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -21,16 +22,75 @@ class ActionRequest(BaseModel):
     instance_id: str = ""
 
 
+def _parse_pwdx_map(status_output: str) -> dict[str, str]:
+    parts = (status_output or "").split("---PWDX_INFO---", 1)
+    if len(parts) < 2:
+        return {}
+
+    path_map: dict[str, str] = {}
+    for line in parts[1].splitlines():
+        if ":" not in line:
+            continue
+        pid, path = line.split(":", 1)
+        pid = pid.strip()
+        path = path.strip().rstrip("/")
+        if pid and path:
+            path_map[pid] = path
+    return path_map
+
+
+def _normalize_target(instance_id: str) -> tuple[str, str, str]:
+    if not instance_id or instance_id == "default":
+        return "", "", ""
+    normalized_path = instance_id.rstrip("/").lower() if instance_id.startswith("/") else ""
+    short_target = instance_id.split("/")[-1] if instance_id.startswith("/") else instance_id
+    dg_suffix = short_target.replace("DGServer_", "")
+    return normalized_path, short_target.lower(), dg_suffix.lower()
+
+
 def is_dg_running(status_output: str, instance_id: str, os_name: str, exit_status: int) -> bool:
     lower_out = (status_output or "").lower()
     broad_match = any(token in lower_out for token in ["mxg_dgs", "mxg_dg", "dgserver", "datagather"])
 
     if os_name != "SunOS":
         if not instance_id or instance_id == "default":
-            return ("mxg_dgs" in lower_out or "dgserver" in lower_out) and exit_status == 0
+            return "dgserver.jar" in lower_out and exit_status == 0
 
-        target = instance_id.split("/")[-1] if instance_id.startswith("/") else instance_id
-        return target.lower() in lower_out and exit_status == 0
+        normalized_path, short_target, dg_suffix = _normalize_target(instance_id)
+        path_map = _parse_pwdx_map(status_output)
+        ps_section = status_output.split("---PWDX_INFO---", 1)[0]
+
+        for line in ps_section.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            lowered = stripped.lower()
+            if "grep" in lowered:
+                continue
+            if "dgserver.jar" not in lowered or "java" not in lowered:
+                continue
+
+            fields = stripped.split()
+            pid = fields[1] if len(fields) > 1 else ""
+            cwd = path_map.get(pid, "").lower()
+            if normalized_path and cwd:
+                normalized_cwd = cwd.rstrip("/")
+                if normalized_cwd == normalized_path or normalized_cwd.startswith(f"{normalized_path}/"):
+                    return True
+                continue
+
+            if short_target and cwd and short_target in cwd:
+                return True
+
+            dg_match = re.search(r"-dg_([^\s]+)", lowered)
+            if normalized_path:
+                continue
+            if dg_match and dg_suffix:
+                token = dg_match.group(1)
+                if token.endswith(dg_suffix):
+                    return True
+
+        return False
 
     if not instance_id or instance_id == "default":
         return broad_match

@@ -19,9 +19,9 @@ def build_rts_status_command(profile: OSProfile) -> str:
 
 def build_dg_status_command(profile: OSProfile) -> str:
     if profile.name == "SunOS":
-        proc_filter = "egrep -i 'mxg.*(dgs|dg)|mxg_(dgs|dg)|DGServer|DataGather|dgsctl'"
+        proc_filter = "egrep -i 'mxg.*(dgs|dg|obsd)|mxg_(dgs|dg|obsd)|DGServer|DataGather|dgsctl'"
     else:
-        proc_filter = "egrep 'mxg_(dgs|dg)|DGServer|DataGather|dgsctl'"
+        proc_filter = "egrep 'mxg_(dgs|dg|obsd)|DGServer|DataGather|dgsctl'"
     return (
         f"{profile.ps_command} | {proc_filter} | grep -v grep; "
         f"echo '---PWDX_INFO---'; "
@@ -34,9 +34,9 @@ def build_dg_status_command(profile: OSProfile) -> str:
 def build_pjs_status_command(profile: OSProfile, grep_target: str) -> str:
     if grep_target == "pjs":
         if profile.name == "SunOS":
-            grep_cmd_part = "egrep -i 'pjs|platformjs|node|npm|mxg.*pjs'"
+            grep_cmd_part = "egrep -i 'pjs|platformjs|node|npm|mxg.*pjs|mxg.*obsd|mxg_obsd'"
         else:
-            grep_cmd_part = "egrep -i 'pjs|platformjs|node|npm'"
+            grep_cmd_part = "egrep -i 'pjs|platformjs|node|npm|mxg_obsd'"
     else:
         grep_cmd_part = f"grep -i '{grep_target}'"
     cmd_base = f"{grep_cmd_part} | grep -v grep | grep -v bash | grep -v ssh | grep -v pjsctl"

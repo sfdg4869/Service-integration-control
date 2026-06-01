@@ -22,29 +22,15 @@ class ActionRequest(BaseModel):
 
 
 def is_rts_running(status_output: str, instance_id: str, os_name: str, exit_status: int) -> bool:
-    lower_out = (status_output or "").lower()
-    broad_match = any(token in lower_out for token in ["mxg_rts", "mxg_obsd", "mxg_updater", "mxg_sndf"])
-
-    if os_name != "SunOS":
-        if not instance_id or instance_id == "default":
-            return "rts" in lower_out and exit_status == 0
-
-        target = instance_id.split("/")[-1] if instance_id.startswith("/") else instance_id
-        return target.lower() in lower_out and exit_status == 0
+    ps_section = (status_output or "").split("---PWDX_INFO---", 1)[0]
+    rts_lines = [line.lower() for line in ps_section.splitlines() if "mxg_rts" in line.lower()]
 
     if not instance_id or instance_id == "default":
-        return broad_match
+        return bool(rts_lines)
 
     target = instance_id.split("/")[-1] if instance_id.startswith("/") else instance_id
     target_lower = target.lower()
-    specific_match = target_lower in lower_out or instance_id.lower() in lower_out
-    if specific_match:
-        return True
-
-    if broad_match:
-        return broad_match
-
-    return exit_status == 0 and "mxg" in lower_out
+    return any(target_lower in line for line in rts_lines)
 
 
 def build_rtsctl_command(directory_expr: str, action: str) -> str:

@@ -89,14 +89,27 @@ function renderDashboard(services) {
 
         let instancesHtml = '';
         typeServices.forEach(srv => {
+            const displayId = srv.display_id || srv.instance_id;
             const pathInfo = srv.path ? `<div style="font-size: 0.75rem; color: #64748b; margin-top: 0.2rem; margin-left: 1.5rem; word-break: break-all;">${srv.path}</div>` : '';
+            const childProcesses = normalizeChildProcesses(type, srv.child_processes);
+            const companionInfo = childProcesses.length > 0
+                ? `<div style="margin-top: 0.35rem; margin-left: 1.5rem;">
+                    <div style="font-size: 0.72rem; color: #64748b; margin-bottom: 0.3rem;">Child Processes</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:0.6rem;">${childProcesses.map(proc => `
+                    <div class="child-proc-item" data-parent-id="${srv.instance_id}" data-proc="${proc.name}" data-available="${proc.available}" style="font-size: 0.78rem; color: #94a3b8; display:flex; align-items:center; gap:0.35rem;">
+                        <span id="child-dot-${cardId}-${srv.instance_id}-${proc.name}" class="dot ${proc.available ? (proc.running ? 'running' : 'stopped') : 'unknown'}" style="width: 8px; height: 8px; display: inline-block;"></span>
+                        <span id="child-label-${cardId}-${srv.instance_id}-${proc.name}">${proc.label}${proc.available ? '' : ' (N/A)'}</span>
+                    </div>
+                `).join('')}</div>
+                </div>`
+                : '';
 
             instancesHtml += `
                 <div style="padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div style="font-weight: 500; color: #38bdf8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;" class="instance-item" data-id="${srv.instance_id}">
                             <span id="dot-${cardId}-${srv.instance_id}" class="dot unknown" style="width: 10px; height: 10px; display: inline-block;"></span>
-                            ${srv.instance_id}
+                            ${displayId}
                         </div>
                         <div style="display: flex; flex-direction: row; gap: 0.5rem; flex-shrink: 0;">
                             <button class="btn start-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; width: 60px;" onclick="controlService('${type}', 'start', '${srv.instance_id}', '${cardId}')">시작</button>
@@ -104,6 +117,7 @@ function renderDashboard(services) {
                         </div>
                     </div>
                     ${pathInfo}
+                    ${companionInfo}
                 </div>
             `;
         });
@@ -146,6 +160,101 @@ function renderDashboard(services) {
     });
 }
 
+function normalizeChildProcesses(type, childProcesses) {
+    const source = childProcesses || {};
+    const orderByType = {
+        rts: ['obsd', 'sndf', 'updater'],
+        dg: ['obsd'],
+        pjs: ['obsd']
+    };
+    const order = orderByType[type] || [];
+    return order.map(name => {
+        const meta = source[name] || {};
+        return {
+            name,
+            label: name.toUpperCase(),
+            running: Boolean(meta.running),
+            available: Boolean(meta.available)
+        };
+    });
+}
+
+function parsePwdxMap(statusDetails) {
+    if (!statusDetails || !statusDetails.includes('---PWDX_INFO---')) {
+        return {};
+    }
+
+    const parts = statusDetails.split('---PWDX_INFO---');
+    if (parts.length < 2) {
+        return {};
+    }
+
+    const pathMap = {};
+    parts[1].split('\n').forEach(line => {
+        if (!line.includes(':')) return;
+        const idx = line.indexOf(':');
+        const pid = line.slice(0, idx).trim();
+        const path = line.slice(idx + 1).trim().replace(/\/+$/, '');
+        if (pid && path) {
+            pathMap[pid] = path;
+        }
+    });
+    return pathMap;
+}
+
+function normalizeRuntimePath(path, instanceName) {
+    if (!path) return '';
+
+    const confSuffix = instanceName ? `/conf/${instanceName}` : '';
+    if (confSuffix && path.endsWith(confSuffix)) {
+        return path.slice(0, -confSuffix.length);
+    }
+
+    const confIdx = path.indexOf('/conf/');
+    if (confIdx >= 0) {
+        return path.slice(0, confIdx);
+    }
+
+    return path;
+}
+
+function getProcessStatusMap(statusDetails, processNames) {
+    const processMap = {};
+    if (!statusDetails) {
+        return processMap;
+    }
+
+    const psSection = statusDetails.split('---PWDX_INFO---')[0] || '';
+    const pathMap = parsePwdxMap(statusDetails);
+
+    psSection.split('\n').forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+
+        const lower = trimmed.toLowerCase();
+        const match = lower.match(/mxg_(rts|obsd|updater|sndf)/);
+        if (!match) return;
+
+        const procName = match[1];
+        if (!processNames.includes(procName)) return;
+        const fields = trimmed.split(/\s+/);
+        const pid = fields.length > 1 ? fields[1] : '';
+        const instMatch = trimmed.match(/(?:^|\s)-c\s+(\S+)|(?:^|\s)c\s+(\S+)/);
+        const instanceName = instMatch ? (instMatch[1] || instMatch[2] || '') : '';
+        const runtimePath = normalizeRuntimePath(pathMap[pid] || '', instanceName);
+        const keys = [runtimePath, instanceName].filter(Boolean);
+
+        keys.forEach(key => {
+            if (!processMap[key]) {
+                processMap[key] = {};
+            }
+            processMap[key][procName] = true;
+        });
+    });
+
+    return processMap;
+}
+
 function updateStatusUI(cardId, statusResult, type) {
     const card = document.getElementById(cardId);
     if (!card) return;
@@ -171,6 +280,14 @@ function updateStatusUI(cardId, statusResult, type) {
     }
 
     logs.innerText = (statusResult.details || statusResult.message || "").trim() || "No output.";
+    const processNamesByType = {
+        rts: ['rts', 'obsd', 'sndf', 'updater'],
+        dg: ['obsd'],
+        pjs: ['obsd']
+    };
+    const processStateMap = processNamesByType[type]
+        ? getProcessStatusMap(statusResult.details, processNamesByType[type])
+        : {};
 
     // 개별 인스턴스 토글 업데이트
     const listItems = document.querySelectorAll(`#${cardId} .instance-item`);
@@ -182,7 +299,15 @@ function updateStatusUI(cardId, statusResult, type) {
         if (statusResult.details) {
             if (type === 'oracle') {
                 isInstRunning = statusResult.details.includes(`ora_pmon_${instId}`);
-            } else if (type === 'rts' || type === 'dg' || type === 'pjs') {
+            } else if (type === 'rts') {
+                const shortInstId = instId.includes('/') ? instId.split('/').pop() : instId;
+                isInstRunning = Boolean(
+                    processStateMap[instId]?.rts ||
+                    processStateMap[shortInstId]?.rts
+                );
+            } else if (type === 'dg') {
+                isInstRunning = statusResult.status === 'running';
+            } else if (type === 'pjs') {
                 if (instId.includes('/')) {
                     // 동일한 이름(SID)을 가진 가짜가 먼저 불 켜지는 착시 방지
                     let pwdxValid = false;
@@ -210,6 +335,28 @@ function updateStatusUI(cardId, statusResult, type) {
         if (dotEl) {
             dotEl.className = isInstRunning ? 'dot running' : 'dot stopped';
         }
+
+        if (type === 'rts' || type === 'dg' || type === 'pjs') {
+            const shortInstId = instId.includes('/') ? instId.split('/').pop() : instId;
+            const procState = processStateMap[instId] || processStateMap[shortInstId] || {};
+            card.querySelectorAll(`.child-proc-item[data-parent-id="${instId}"]`).forEach(child => {
+                const procName = child.getAttribute('data-proc');
+                const isAvailable = child.getAttribute('data-available') === 'true';
+                const childDot = document.getElementById(`child-dot-${cardId}-${instId}-${procName}`);
+                const childLabel = document.getElementById(`child-label-${cardId}-${instId}-${procName}`);
+                if (childDot) {
+                    if (!isAvailable) {
+                        childDot.className = 'dot unknown';
+                    } else {
+                        childDot.className = procState[procName] ? 'dot running' : 'dot stopped';
+                    }
+                }
+                if (childLabel) {
+                    const baseLabel = procName.toUpperCase();
+                    childLabel.innerText = isAvailable ? baseLabel : `${baseLabel} (N/A)`;
+                }
+            });
+        }
     });
 }
 
@@ -218,6 +365,94 @@ function setButtonsState(cardId, disabled) {
     if (!card) return;
     const btns = card.querySelectorAll('.btn');
     btns.forEach(b => b.disabled = disabled);
+}
+
+function updateCardHeader(cardId, status, details) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    const dot = card.querySelector('.dot');
+    const text = card.querySelector('.status-text');
+    const logs = card.querySelector('.log-output');
+
+    dot.className = 'dot';
+    text.className = 'status-text target-status';
+
+    if (status === 'running') {
+        dot.classList.add('running');
+        text.classList.add('running');
+        text.innerText = 'RUNNING';
+    } else if (status === 'stopped') {
+        dot.classList.add('stopped');
+        text.classList.add('stopped');
+        text.innerText = 'STOPPED';
+    } else {
+        dot.classList.add('unknown');
+        text.classList.add('unknown');
+        text.innerText = 'ERROR';
+    }
+
+    logs.innerText = (details || '').trim() || 'No output.';
+}
+
+function updateSingleInstanceStatus(cardId, type, instanceId, statusResult) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    const dotEl = document.getElementById(`dot-${cardId}-${instanceId}`);
+    if (dotEl) {
+        dotEl.className = statusResult.status === 'running' ? 'dot running' : 'dot stopped';
+    }
+
+    const processNamesByType = {
+        rts: ['rts', 'obsd', 'sndf', 'updater'],
+        dg: ['obsd'],
+        pjs: ['obsd']
+    };
+    const processStateMap = processNamesByType[type]
+        ? getProcessStatusMap(statusResult.details, processNamesByType[type])
+        : {};
+    const shortInstId = instanceId.includes('/') ? instanceId.split('/').pop() : instanceId;
+    const procState = processStateMap[instanceId] || processStateMap[shortInstId] || {};
+
+    card.querySelectorAll(`.child-proc-item[data-parent-id="${instanceId}"]`).forEach(child => {
+        const procName = child.getAttribute('data-proc');
+        const isAvailable = child.getAttribute('data-available') === 'true';
+        const childDot = document.getElementById(`child-dot-${cardId}-${instanceId}-${procName}`);
+        const childLabel = document.getElementById(`child-label-${cardId}-${instanceId}-${procName}`);
+
+        if (childDot) {
+            if (!isAvailable) {
+                childDot.className = 'dot unknown';
+            } else {
+                childDot.className = procState[procName] ? 'dot running' : 'dot stopped';
+            }
+        }
+
+        if (childLabel) {
+            const baseLabel = procName.toUpperCase();
+            childLabel.innerText = isAvailable ? baseLabel : `${baseLabel} (N/A)`;
+        }
+    });
+}
+
+function updateMultiInstanceStatus(cardId, type, resultMap) {
+    const instanceIds = Object.keys(resultMap);
+    const results = instanceIds.map(instanceId => resultMap[instanceId]).filter(Boolean);
+    const anyRunning = results.some(result => result.status === 'running');
+    const anyError = results.some(result => result.status === 'error');
+    const headerStatus = anyRunning ? 'running' : (anyError ? 'error' : 'stopped');
+    const headerDetails = instanceIds.map(instanceId => {
+        const result = resultMap[instanceId] || {};
+        const body = (result.details || result.message || '').trim();
+        return `[${instanceId}] ${body || result.status || 'unknown'}`;
+    }).join('\n\n');
+
+    updateCardHeader(cardId, headerStatus, headerDetails);
+
+    instanceIds.forEach(instanceId => {
+        updateSingleInstanceStatus(cardId, type, instanceId, resultMap[instanceId]);
+    });
 }
 
 async function checkStatus(type, instanceId, cardId) {
@@ -241,6 +476,28 @@ async function checkStatus(type, instanceId, cardId) {
     document.getElementById(cardId).querySelector('.status-text').innerText = "...";
 
     try {
+        if (type === 'dg' && !instanceId) {
+            const instanceIds = Array.from(
+                document.querySelectorAll(`#${cardId} .instance-item`)
+            ).map(item => item.getAttribute('data-id')).filter(Boolean);
+
+            const responses = await Promise.all(instanceIds.map(async currentInstanceId => {
+                const response = await fetch(`/api/${type}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ...payload,
+                        instance_id: currentInstanceId
+                    })
+                });
+                const data = await response.json();
+                return [currentInstanceId, data];
+            }));
+
+            updateMultiInstanceStatus(cardId, type, Object.fromEntries(responses));
+            return;
+        }
+
         const response = await fetch(`/api/${type}/status`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

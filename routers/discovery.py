@@ -8,6 +8,7 @@ from services.maxgauge_commands import (
     build_maxgauge_find_all_command,
 )
 import logging
+import re
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -27,6 +28,134 @@ def _build_targeted_find_command(home_command: str, target_type: str, names: lis
         f'[ -z "$D" ] && D=~; '
         f'find "$D" -type {target_type} \\( {name_expr} \\) 2>/dev/null'
     )
+
+
+def _extract_instance_name(line: str) -> str:
+    match = re.search(r"(?:^|\s)-c\s+(\S+)", line)
+    if match:
+        return match.group(1)
+    match = re.search(r"(?:^|\s)c\s+(\S+)", line)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def _extract_process_name(line: str) -> str:
+    match = re.search(r"(mxg_(?:rts|obsd|updater|sndf|dgs|dg))", line, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+    lower_line = line.lower()
+    if "dgserver" in lower_line:
+        return "dgserver"
+    if "datagather" in lower_line:
+        return "datagather"
+    return ""
+
+
+def _normalize_process_path(raw_path: str, instance_name: str = "") -> str:
+    path = raw_path.strip().rstrip("/")
+    if not path:
+        return ""
+
+    conf_suffix = f"/conf/{instance_name}" if instance_name else ""
+    if conf_suffix and path.endswith(conf_suffix):
+        return path[: -len(conf_suffix)]
+
+    if "/conf/" in path:
+        return path.split("/conf/")[0]
+
+    return path
+
+
+def _parse_pwdx_section(status_output: str) -> dict[str, str]:
+    parts = status_output.split("---PWDX_INFO---", 1)
+    if len(parts) < 2:
+        return {}
+
+    path_map: dict[str, str] = {}
+    for line in parts[1].splitlines():
+        if ":" not in line:
+            continue
+        pid, path = line.split(":", 1)
+        pid = pid.strip()
+        path = path.strip()
+        if pid and path:
+            path_map[pid] = path
+    return path_map
+
+
+def _build_rts_child_processes(running_processes: set[str], updater_available: bool) -> dict[str, dict[str, bool]]:
+    return {
+        "obsd": {
+            "running": "obsd" in running_processes,
+            "available": True,
+        },
+        "sndf": {
+            "running": "sndf" in running_processes,
+            "available": True,
+        },
+        "updater": {
+            "running": "updater" in running_processes,
+            "available": updater_available or "updater" in running_processes,
+        },
+    }
+
+
+def _build_updater_presence_command(instance_path: str) -> str:
+    return (
+        f'if [ -f "{instance_path}/bin/mxg_updater" ] || [ -f "{instance_path}/mxg_updater" ]; then '
+        'echo yes; '
+        'else '
+        'echo no; '
+        'fi'
+    )
+
+
+def _build_obsd_presence_command(instance_path: str) -> str:
+    return (
+        f'if [ -f "{instance_path}/conf/observer.conf" ] || [ -f "{instance_path}/observer.conf" ]; then '
+        'echo yes; '
+        'elif find "' + instance_path + '" -type f \\( -name "observer.conf" -o -name "*observer*.conf" -o -name "mxg_obsd" \\) 2>/dev/null | head -n 1 | grep -q .; then '
+        'echo yes; '
+        'else '
+        'echo no; '
+        'fi'
+    )
+
+
+def _build_single_child_process(process_name: str, running_processes: set[str], available: bool) -> dict[str, dict[str, bool]]:
+    return {
+        process_name: {
+            "running": process_name in running_processes,
+            "available": available or process_name in running_processes,
+        }
+    }
+
+
+def _extract_process_state_map(status_output: str, process_names: set[str]) -> dict[str, set[str]]:
+    path_map = _parse_pwdx_section(status_output)
+    state_map: dict[str, set[str]] = {}
+
+    for line in status_output.split("---PWDX_INFO---", 1)[0].splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        proc_name = _extract_process_name(line).replace("mxg_", "")
+        if proc_name not in process_names:
+            continue
+
+        fields = line.split()
+        pid = fields[1] if len(fields) > 1 else ""
+        instance_name = _extract_instance_name(line)
+        runtime_path = _normalize_process_path(path_map.get(pid, ""), instance_name)
+        keys = [runtime_path, instance_name]
+        for key in keys:
+            if not key:
+                continue
+            state_map.setdefault(key, set()).add(proc_name)
+
+    return state_map
 
 
 class ActionRequest(BaseModel):
@@ -119,32 +248,6 @@ async def discover_services(req: ActionRequest):
                 rts_instances = {}
                 dg_instances = {}
 
-                ps_res = await ssh.execute_command(
-                    status_user,
-                    f"{os_profile.ps_command} | egrep 'mxg_(rts|dgs|dg|obsd|updater|sndf)|DGServer|DataGather' | grep -v grep || true",
-                )
-                for line in ps_res["stdout"].strip().split("\n"):
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    if "mxg_dgs" in line or "DGServer" in line:
-                        if "-c" in line:
-                            parts = line.split("-c")
-                            if len(parts) > 1:
-                                iname = parts[1].strip().split()[0]
-                                if iname:
-                                    dg_instances[iname] = "Process"
-                                    continue
-                        dg_instances["default"] = "DGServer"
-                    elif "mxg_rts" in line and needs_rts:
-                        if "-c" in line:
-                            parts = line.split("-c")
-                            if len(parts) > 1:
-                                iname = parts[1].strip().split()[0]
-                                if iname:
-                                    rts_instances[iname] = "Process"
-
                 if needs_rts:
                     if os_profile.name == "SunOS":
                         mxgrc_cmd = _build_targeted_find_command(
@@ -166,9 +269,20 @@ async def discover_services(req: ActionRequest):
                             path = line.replace("/.mxgrc", "")
                             name = path.split("/")[-1]
                             if name not in ["", ".", ".."]:
-                                if name in rts_instances:
-                                    del rts_instances[name]
-                                rts_instances[path] = name
+                                existing = rts_instances.pop(name, None)
+                                if existing:
+                                    entry = rts_instances.setdefault(
+                                        path,
+                                        {
+                                            "name": name,
+                                        },
+                                    )
+                                    if existing.get("name"):
+                                        entry["name"] = existing["name"]
+                                else:
+                                    rts_instances[path] = {
+                                        "name": name,
+                                    }
 
                 if needs_dg:
                     if os_profile.name == "SunOS":
@@ -202,15 +316,32 @@ async def discover_services(req: ActionRequest):
                             dg_p = bin_p[:-4] if bin_p.endswith("/bin") else bin_p
                             if dg_p in rts_instances:
                                 del rts_instances[dg_p]
-                            dg_instances[dg_p] = dg_p.split("/")[-1]
+                            dg_instances[dg_p] = {
+                                "name": dg_p.split("/")[-1],
+                            }
 
                 if needs_rts:
-                    for p in rts_instances.keys():
+                    for p, meta in rts_instances.items():
+                        updater_available = False
+                        if p.startswith("/"):
+                            updater_check = await ssh.execute_command(
+                                None,
+                                _build_updater_presence_command(p),
+                            )
+                            updater_available = updater_check["stdout"].strip().lower() == "yes"
+
+                        child_processes = _build_rts_child_processes(
+                            set(),
+                            updater_available,
+                        )
                         services.append(
                             {
                                 "type": "rts",
-                                "name": f"RTS ({p})",
+                                "name": f"RTS ({meta['name']})",
                                 "instance_id": p,
+                                "display_id": meta["name"],
+                                "path": p if p.startswith("/") else "",
+                                "child_processes": child_processes,
                                 "run_as": actual_user,
                             }
                         )
@@ -221,17 +352,32 @@ async def discover_services(req: ActionRequest):
                                 "type": "rts",
                                 "name": "RTS (Default)",
                                 "instance_id": "default",
+                                "child_processes": _build_rts_child_processes(set(), False),
                                 "run_as": actual_user,
                             }
                         )
 
                 if needs_dg:
-                    for p in dg_instances.keys():
+                    for p, meta in dg_instances.items():
+                        obsd_available = False
+                        if p.startswith("/"):
+                            obsd_check = await ssh.execute_command(
+                                None,
+                                _build_obsd_presence_command(p),
+                            )
+                            obsd_available = obsd_check["stdout"].strip().lower() == "yes"
                         services.append(
                             {
                                 "type": "dg",
-                                "name": f"DG ({p})",
+                                "name": f"DG ({meta['name']})",
                                 "instance_id": p,
+                                "display_id": meta["name"],
+                                "path": p if p.startswith("/") else "",
+                                "child_processes": _build_single_child_process(
+                                    "obsd",
+                                    set(),
+                                    obsd_available,
+                                ),
                                 "run_as": actual_user,
                             }
                         )
@@ -242,22 +388,13 @@ async def discover_services(req: ActionRequest):
                                 "type": "dg",
                                 "name": "DG (Default)",
                                 "instance_id": "default",
+                                "child_processes": _build_single_child_process("obsd", set(), False),
                                 "run_as": actual_user,
                             }
                         )
 
             if needs_pjs:
                 pjs_instances = {}
-                pjs_proc_cmd = (
-                    f"{os_profile.ps_command} | egrep -i 'pjs|platformjs|node|npm' "
-                    "| grep -v grep | grep -v bash | grep -v ssh | grep -v pjsctl || true"
-                )
-                res_pjs_proc = await ssh.execute_command(status_user, pjs_proc_cmd)
-                for line in res_pjs_proc["stdout"].strip().split("\n"):
-                    line = line.strip()
-                    if not line or "pjsctl" in line:
-                        continue
-                    pjs_instances["default"] = "PlatformJS"
 
                 if os_profile.name == "SunOS":
                     pjs_cmd = _build_targeted_find_command(
@@ -284,14 +421,30 @@ async def discover_services(req: ActionRequest):
                     line = line.strip()
                     if any(line.endswith(suffix) for suffix in ["/pjsctl", "/pjsctl.sh"]):
                         p = _strip_known_suffix(line, ["/pjsctl", "/pjsctl.sh"])
-                        pjs_instances[p] = p.split("/")[-1]
+                        pjs_instances[p] = {
+                            "name": p.split("/")[-1],
+                        }
 
-                for p in pjs_instances.keys():
+                for p, meta in pjs_instances.items():
+                    obsd_available = False
+                    if p.startswith("/"):
+                        obsd_check = await ssh.execute_command(
+                            None,
+                            _build_obsd_presence_command(p),
+                        )
+                        obsd_available = obsd_check["stdout"].strip().lower() == "yes"
                     services.append(
                         {
                             "type": "pjs",
-                            "name": f"PJS ({p})",
+                            "name": f"PJS ({meta['name']})",
                             "instance_id": p,
+                            "display_id": meta["name"],
+                            "path": p if p.startswith("/") else "",
+                            "child_processes": _build_single_child_process(
+                                "obsd",
+                                set(),
+                                obsd_available,
+                            ),
                             "run_as": actual_user,
                         }
                     )
@@ -301,6 +454,7 @@ async def discover_services(req: ActionRequest):
                             "type": "pjs",
                             "name": "PJS (Default)",
                             "instance_id": "default",
+                            "child_processes": _build_single_child_process("obsd", set(), False),
                             "run_as": actual_user,
                         }
                     )
