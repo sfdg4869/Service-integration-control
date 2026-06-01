@@ -79,6 +79,7 @@ function renderDashboard(services) {
         'pjs': `<img src="/static/maxgauge.png" alt="MaxGauge PJS" style="height: 1.6rem; object-fit: contain; margin-right: 0.5rem; filter: hue-rotate(90deg);" onerror="this.style.display='none'">`
     };
     const searchableTypes = ['rts', 'dg', 'pjs'];
+    const restartableTypes = ['rts', 'dg', 'pjs'];
 
     types.forEach(type => {
         const typeServices = services.filter(s => s.type === type);
@@ -114,6 +115,13 @@ function renderDashboard(services) {
                 `).join('')}</div>
                 </div>`
                 : '';
+            const restartButtonHtml = restartableTypes.includes(type)
+                ? `<button class="btn check-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; width: 68px;" onclick="controlService('${type}', 'restart', '${srv.instance_id}', '${cardId}')">재시작</button>`
+                : '';
+
+            const restartButtonHtmlResolved = restartableTypes.includes(type)
+                ? `<button class="btn check-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; width: 68px;" onclick="controlService('${type}', 'restart', '${srv.instance_id}', '${cardId}')">재시작</button>`
+                : '';
 
             instancesHtml += `
                 <div class="instance-row" data-search="${searchText}" style="padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
@@ -125,6 +133,7 @@ function renderDashboard(services) {
                         <div style="display: flex; flex-direction: row; gap: 0.5rem; flex-shrink: 0;">
                             <button class="btn start-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; width: 60px;" onclick="controlService('${type}', 'start', '${srv.instance_id}', '${cardId}')">시작</button>
                             <button class="btn stop-btn" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; width: 60px;" onclick="controlService('${type}', 'stop', '${srv.instance_id}', '${cardId}')">정지</button>
+                            ${restartButtonHtmlResolved}
                         </div>
                     </div>
                     ${pathInfo}
@@ -266,6 +275,46 @@ function normalizeRuntimePath(path, instanceName) {
     return path;
 }
 
+function extractProcessFileBasePath(line) {
+    if (!line) return '';
+
+    const fileMatch = line.match(/(?:^|\s)-f\s+(\S+)/);
+    if (!fileMatch || !fileMatch[1]) {
+        return '';
+    }
+
+    return normalizeRuntimePath(fileMatch[1].trim().replace(/\/+$/, ''), '');
+}
+
+function getProcessStateForInstance(processStateMap, instanceId) {
+    const shortInstId = instanceId.includes('/') ? instanceId.split('/').pop() : instanceId;
+    const normalizedInstanceId = instanceId.replace(/\/+$/, '');
+
+    if (processStateMap[normalizedInstanceId]) {
+        return processStateMap[normalizedInstanceId];
+    }
+
+    if (processStateMap[shortInstId]) {
+        return processStateMap[shortInstId];
+    }
+
+    if (!instanceId.includes('/')) {
+        return {};
+    }
+
+    for (const [key, value] of Object.entries(processStateMap)) {
+        if (!key) continue;
+        if (key === normalizedInstanceId) {
+            return value;
+        }
+        if (key.startsWith(`${normalizedInstanceId}/`) || normalizedInstanceId.startsWith(`${key}/`)) {
+            return value;
+        }
+    }
+
+    return {};
+}
+
 function getProcessStatusMap(statusDetails, processNames) {
     const processMap = {};
     if (!statusDetails) {
@@ -290,7 +339,10 @@ function getProcessStatusMap(statusDetails, processNames) {
         const instMatch = trimmed.match(/(?:^|\s)-c\s+(\S+)|(?:^|\s)c\s+(\S+)/);
         const instanceName = instMatch ? (instMatch[1] || instMatch[2] || '') : '';
         const runtimePath = normalizeRuntimePath(pathMap[pid] || '', instanceName);
-        const keys = [runtimePath, instanceName].filter(Boolean);
+        const configBasePath = extractProcessFileBasePath(trimmed);
+        const keys = [runtimePath, configBasePath, instanceName]
+            .filter(Boolean)
+            .map(key => key.replace(/\/+$/, ''));
 
         keys.forEach(key => {
             if (!processMap[key]) {
@@ -385,8 +437,7 @@ function updateStatusUI(cardId, statusResult, type) {
         }
 
         if (type === 'rts' || type === 'dg' || type === 'pjs') {
-            const shortInstId = instId.includes('/') ? instId.split('/').pop() : instId;
-            const procState = processStateMap[instId] || processStateMap[shortInstId] || {};
+            const procState = getProcessStateForInstance(processStateMap, instId);
             card.querySelectorAll(`.child-proc-item[data-parent-id="${instId}"]`).forEach(child => {
                 const procName = child.getAttribute('data-proc');
                 const isAvailable = child.getAttribute('data-available') === 'true';
@@ -460,8 +511,7 @@ function updateSingleInstanceStatus(cardId, type, instanceId, statusResult) {
     const processStateMap = processNamesByType[type]
         ? getProcessStatusMap(statusResult.details, processNamesByType[type])
         : {};
-    const shortInstId = instanceId.includes('/') ? instanceId.split('/').pop() : instanceId;
-    const procState = processStateMap[instanceId] || processStateMap[shortInstId] || {};
+    const procState = getProcessStateForInstance(processStateMap, instanceId);
 
     card.querySelectorAll(`.child-proc-item[data-parent-id="${instanceId}"]`).forEach(child => {
         const procName = child.getAttribute('data-proc');

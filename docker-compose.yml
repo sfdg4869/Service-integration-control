@@ -1,0 +1,9 @@
+services:
+  start-stop-automatic:
+    image: ${IMAGE_NAME:-ghcr.io/sfdg4869/service-integration-control}:${IMAGE_TAG:-latest}
+    container_name: start-stop-automatic
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Seoul}

@@ -33,6 +33,18 @@ def is_rts_running(status_output: str, instance_id: str, os_name: str, exit_stat
     return any(target_lower in line for line in rts_lines)
 
 
+def is_updater_running(status_output: str, instance_id: str) -> bool:
+    ps_section = (status_output or "").split("---PWDX_INFO---", 1)[0]
+    updater_lines = [line.lower() for line in ps_section.splitlines() if "mxg_updater" in line.lower()]
+
+    if not instance_id or instance_id == "default":
+        return bool(updater_lines)
+
+    target = instance_id.split("/")[-1] if instance_id.startswith("/") else instance_id
+    target_lower = target.lower()
+    return any(target_lower in line for line in updater_lines)
+
+
 def build_rtsctl_command(directory_expr: str, action: str) -> str:
     return f'''
 RTS_DIR={directory_expr}
@@ -52,6 +64,59 @@ if [ -n "$RTS_DIR" ] && cd "$RTS_DIR" 2>/dev/null; then
   fi
   echo "RTS_SHELL=$RTS_SHELL"
   RTSCTL_CMD="$RTSCTL_CMD" "$RTS_SHELL" -c '. ./.mxgrc && "$RTSCTL_CMD" {action}' 2>&1
+  RTSCTL_EXIT=$?
+  echo "RTSCTL_EXIT=$RTSCTL_EXIT"
+  exit $RTSCTL_EXIT
+else
+  echo "RTS Path Not Found"
+  exit 1
+fi
+'''
+
+
+def build_rts_updater_restart_command(directory_expr: str) -> str:
+    return f'''
+RTS_DIR={directory_expr}
+if [ -n "$RTS_DIR" ] && cd "$RTS_DIR" 2>/dev/null; then
+  CONF_NAME=$(basename "$RTS_DIR")
+  echo "RTS_DIR=$RTS_DIR"
+  echo "CONF_NAME=$CONF_NAME"
+  echo "RUN_USER=`id -un 2>/dev/null || whoami 2>/dev/null || echo unknown`"
+  if [ -x ./rtsctl ]; then
+    RTSCTL_CMD=./rtsctl
+  else
+    RTSCTL_CMD=rtsctl
+  fi
+  echo "RTSCTL_CMD=$RTSCTL_CMD"
+  if command -v ksh >/dev/null 2>&1; then
+    RTS_SHELL=ksh
+  else
+    RTS_SHELL=sh
+  fi
+  echo "RTS_SHELL=$RTS_SHELL"
+  if [ -f ./bin/mxg_updater ] || [ -f ./mxg_updater ]; then
+    UPDATER_AVAILABLE=yes
+  else
+    UPDATER_AVAILABLE=no
+  fi
+  echo "UPDATER_AVAILABLE=$UPDATER_AVAILABLE"
+  RTSCTL_CMD="$RTSCTL_CMD" CONF_NAME="$CONF_NAME" UPDATER_AVAILABLE="$UPDATER_AVAILABLE" "$RTS_SHELL" -c '
+    . ./.mxgrc || exit 1
+    OVERALL_EXIT=0
+    if [ "$UPDATER_AVAILABLE" = "yes" ]; then
+      echo "[STEP] stop_updater"
+      "$RTSCTL_CMD" stop_updater || OVERALL_EXIT=$?
+      sleep 2
+    fi
+    echo "[STEP] restart_rts"
+    "$RTSCTL_CMD" restart || OVERALL_EXIT=$?
+    sleep 2
+    if [ "$UPDATER_AVAILABLE" = "yes" ]; then
+      echo "[STEP] start $CONF_NAME UPDATER"
+      "$RTSCTL_CMD" start "$CONF_NAME" UPDATER || OVERALL_EXIT=$?
+    fi
+    exit $OVERALL_EXIT
+  ' 2>&1
   RTSCTL_EXIT=$?
   echo "RTSCTL_EXIT=$RTSCTL_EXIT"
   exit $RTSCTL_EXIT
@@ -249,4 +314,65 @@ fi
             return {"success": success, "logs": logs, "error": error}
     except Exception as e:
         logger.exception("RTS stop exception host=%s instance=%s", req.host, req.instance_id)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/restart")
+async def restart_service(req: ActionRequest):
+    try:
+        async with SSHClientWrapper(req.host, req.port, req.username, req.password) as ssh:
+            os_res = await ssh.execute_command(process_user=None, command="uname -s")
+            os_profile = get_os_profile(os_res["stdout"].strip())
+            user_res = await ssh.execute_command(process_user=None, command=MAXGAUGE_USER_COMMAND)
+            actual_user = user_res["stdout"].strip() or "maxgauge"
+
+            inst = req.instance_id if req.instance_id and req.instance_id != "default" else "rts"
+            if inst.startswith("/"):
+                cmd = build_rts_updater_restart_command(f'"{inst}"')
+            else:
+                find_cmd = build_maxgauge_find_command(os_profile, inst, "d")
+                cmd = build_rts_updater_restart_command(f'$({find_cmd})')
+
+            res = await ssh.execute_command(process_user=actual_user, command=cmd, timeout=240)
+            status_user = actual_user if os_profile.name == "SunOS" else None
+            status_res = await ssh.execute_command(
+                process_user=status_user,
+                command=build_rts_status_command(os_profile),
+            )
+            is_running = is_rts_running(status_res["stdout"], inst, os_profile.name, status_res["exit_status"])
+            updater_running = is_updater_running(status_res["stdout"], inst)
+            updater_available = "UPDATER_AVAILABLE=yes" in (res["stdout"] or "")
+            success = (
+                (res["exit_status"] == 0 and is_running and (not updater_available or updater_running))
+                or
+                (is_running and (not updater_available or updater_running))
+            )
+            logger.warning(
+                "RTS restart result host=%s os=%s instance=%s run_user=%s exit_status=%s is_running=%s updater_available=%s updater_running=%s command=%r stdout=%r stderr=%r",
+                req.host,
+                os_profile.name,
+                inst,
+                actual_user,
+                res["exit_status"],
+                is_running,
+                updater_available,
+                updater_running,
+                res["command_executed"],
+                res["stdout"],
+                res["stderr"],
+            )
+            logs = res["stdout"]
+            error = res["stderr"] or ""
+            if not success and not error:
+                error = logs or "RTS updater restart command failed without stderr output."
+            if not success:
+                logs = f"{logs}\nEXIT_STATUS={res['exit_status']}\nCOMMAND={res['command_executed']}\nSTATUS_OUTPUT={status_res['stdout']}".strip()
+            elif res["exit_status"] != 0 and is_running and (not updater_available or updater_running):
+                if updater_available:
+                    logs = f"{logs}\nProcess check confirmed RTS and UPDATER are running after restart.".strip()
+                else:
+                    logs = f"{logs}\nProcess check confirmed RTS is running after restart.".strip()
+            return {"success": success, "logs": logs, "error": error}
+    except Exception as e:
+        logger.exception("RTS restart exception host=%s instance=%s", req.host, req.instance_id)
         return {"success": False, "error": str(e)}

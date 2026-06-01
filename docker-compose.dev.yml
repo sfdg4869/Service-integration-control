@@ -1,0 +1,11 @@
+services:
+  start-stop-automatic:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: start-stop-automatic
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul

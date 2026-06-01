@@ -25,7 +25,11 @@ app.include_router(pjs.router, prefix="/api/pjs", tags=["pjs"])
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={}
+    )
 
 if __name__ == "__main__":
     import uvicorn

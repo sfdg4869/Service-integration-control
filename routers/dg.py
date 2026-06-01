@@ -224,6 +224,58 @@ async def start_service(req: ActionRequest):
         return {"success": False, "error": str(e)}
 
 
+@router.post("/restart")
+async def restart_service(req: ActionRequest):
+    try:
+        async with SSHClientWrapper(req.host, req.port, req.username, req.password) as ssh:
+            os_res = await ssh.execute_command(process_user=None, command="uname -s")
+            os_profile = get_os_profile(os_res["stdout"].strip())
+            user_res = await ssh.execute_command(process_user=None, command=MAXGAUGE_USER_COMMAND)
+            actual_user = user_res["stdout"].strip().split("\n")[0] or "maxgauge"
+
+            inst = req.instance_id if req.instance_id and req.instance_id != "default" else ""
+            if inst.startswith("/"):
+                cmd = build_dgsctl_command(f'"{inst}"', "restart")
+            elif inst:
+                find_cmd = build_maxgauge_find_command(os_profile, inst, "d")
+                cmd = build_dgsctl_command(f'$({find_cmd})', "restart")
+            else:
+                find_cmd = build_maxgauge_find_command(os_profile, "dgsctl", "f")
+                cmd = build_dgsctl_command(f'$(dirname "$({find_cmd})")', "restart")
+
+            res = await ssh.execute_command(process_user=actual_user, command=cmd, timeout=240)
+            status_user = actual_user if os_profile.name == "SunOS" else None
+            status_res = await ssh.execute_command(
+                process_user=status_user,
+                command=build_dg_status_command(os_profile),
+            )
+            is_running = is_dg_running(status_res["stdout"], inst, os_profile.name, status_res["exit_status"])
+            success = res["exit_status"] == 0 or is_running
+            logger.warning(
+                "DG restart result host=%s os=%s instance=%s run_user=%s exit_status=%s is_running=%s command=%r stdout=%r stderr=%r",
+                req.host,
+                os_profile.name,
+                inst,
+                actual_user,
+                res["exit_status"],
+                is_running,
+                res["command_executed"],
+                res["stdout"],
+                res["stderr"],
+            )
+            logs = res["stdout"]
+            error = res["stderr"] or ""
+            if not success and not error:
+                error = logs or "DG restart command failed without stderr output."
+            if not success:
+                logs = f"{logs}\nEXIT_STATUS={res['exit_status']}\nCOMMAND={res['command_executed']}\nSTATUS_OUTPUT={status_res['stdout']}".strip()
+            elif res["exit_status"] != 0 and is_running:
+                logs = f"{logs}\nProcess check confirmed DG is running after restart.".strip()
+            return {"success": success, "logs": logs, "error": error}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @router.post("/stop")
 async def stop_service(req: ActionRequest):
     try:
