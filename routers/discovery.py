@@ -30,6 +30,19 @@ def _build_targeted_find_command(home_command: str, target_type: str, names: lis
     )
 
 
+def _is_same_or_child_path(base_path: str, candidate_path: str) -> bool:
+    normalized_base = base_path.rstrip("/")
+    normalized_candidate = candidate_path.rstrip("/")
+    return (
+        normalized_candidate == normalized_base
+        or normalized_candidate.startswith(f"{normalized_base}/")
+    )
+
+
+def _paths_overlap(first_path: str, second_path: str) -> bool:
+    return _is_same_or_child_path(first_path, second_path) or _is_same_or_child_path(second_path, first_path)
+
+
 def _extract_instance_name(line: str) -> str:
     match = re.search(r"(?:^|\s)-c\s+(\S+)", line)
     if match:
@@ -249,40 +262,21 @@ async def discover_services(req: ActionRequest):
                 dg_instances = {}
 
                 if needs_rts:
-                    if os_profile.name == "SunOS":
-                        mxgrc_cmd = _build_targeted_find_command(
-                            os_profile.maxgauge_home_command,
-                            "f",
-                            [".mxgrc"],
-                        )
-                        res_mxgrc = await ssh.execute_command(None, mxgrc_cmd, timeout=90)
-                    else:
-                        mxgrc_cmd = build_maxgauge_find_all_command(
-                            os_profile,
-                            r"/\.mxgrc$",
-                            "-type f",
-                        )
-                        res_mxgrc = await ssh.execute_command(None, mxgrc_cmd)
-                    for line in res_mxgrc["stdout"].strip().split("\n"):
+                    rts_cmd = build_maxgauge_find_all_command(
+                        os_profile,
+                        r"/bin/mxg_rts$",
+                        "-type f",
+                    )
+                    res_rts = await ssh.execute_command(None, rts_cmd, timeout=90 if os_profile.name == "SunOS" else 30)
+                    for line in res_rts["stdout"].strip().split("\n"):
                         line = line.strip()
-                        if line.endswith(".mxgrc"):
-                            path = line.replace("/.mxgrc", "")
+                        if line.endswith("/bin/mxg_rts"):
+                            path = line[: -len("/bin/mxg_rts")]
                             name = path.split("/")[-1]
                             if name not in ["", ".", ".."]:
-                                existing = rts_instances.pop(name, None)
-                                if existing:
-                                    entry = rts_instances.setdefault(
-                                        path,
-                                        {
-                                            "name": name,
-                                        },
-                                    )
-                                    if existing.get("name"):
-                                        entry["name"] = existing["name"]
-                                else:
-                                    rts_instances[path] = {
-                                        "name": name,
-                                    }
+                                rts_instances[path] = {
+                                    "name": name,
+                                }
 
                 if needs_dg:
                     if os_profile.name == "SunOS":
@@ -319,6 +313,16 @@ async def discover_services(req: ActionRequest):
                             dg_instances[dg_p] = {
                                 "name": dg_p.split("/")[-1],
                             }
+
+                    if needs_rts and dg_instances:
+                        rts_instances = {
+                            path: meta
+                            for path, meta in rts_instances.items()
+                            if not any(
+                                path.startswith("/") and _is_same_or_child_path(dg_path, path)
+                                for dg_path in dg_instances.keys()
+                            )
+                        }
 
                 if needs_rts:
                     for p, meta in rts_instances.items():
@@ -459,6 +463,21 @@ async def discover_services(req: ActionRequest):
                         }
                     )
                 debug_info.append(f"PJS discovered: {list(pjs_instances.keys())}")
+
+            if needs_rts:
+                blocked_paths = {
+                    service["path"]
+                    for service in services
+                    if service["type"] in {"dg", "pjs"} and service.get("path")
+                }
+                if blocked_paths:
+                    services = [
+                        service
+                        for service in services
+                        if service["type"] != "rts"
+                        or not service.get("path")
+                        or not any(_paths_overlap(blocked_path, service["path"]) for blocked_path in blocked_paths)
+                    ]
 
         return {"success": True, "services": services, "debug": debug_info}
     except Exception as e:
