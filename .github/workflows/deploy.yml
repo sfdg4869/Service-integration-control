@@ -1,4 +1,4 @@
-name: Build And Deploy
+name: Build And Publish Image
 
 on:
   push:
@@ -13,7 +13,7 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/service-integration-control
 
 jobs:
-  build-and-deploy:
+  build-and-publish:
     runs-on: ubuntu-latest
 
     steps:
@@ -66,43 +66,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-      - name: Validate deploy secrets
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-        run: |
-          missing=0
-          for key in DEPLOY_HOST DEPLOY_PORT DEPLOY_USER DEPLOY_PASSWORD DEPLOY_PATH GHCR_USERNAME GHCR_TOKEN; do
-            if [ -z "${!key}" ]; then
-              echo "::error::Missing required secret: $key"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-      - name: Deploy to Linux server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          port: ${{ secrets.DEPLOY_PORT }}
-          username: ${{ secrets.DEPLOY_USER }}
-          password: ${{ secrets.DEPLOY_PASSWORD }}
-          script_stop: true
-          script: |
-            cd "${{ secrets.DEPLOY_PATH }}"
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
-            export IMAGE_NAME="${{ env.IMAGE_NAME }}"
-            export IMAGE_TAG="latest"
-            export APP_PORT="${{ secrets.APP_PORT }}"
-            if [ -z "$APP_PORT" ]; then export APP_PORT="5051"; fi
-            docker compose pull
-            docker compose up -d
-            docker image prune -f
