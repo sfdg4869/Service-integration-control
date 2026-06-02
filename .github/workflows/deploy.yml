@@ -80,6 +80,8 @@ jobs:
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
             export IMAGE_NAME="${{ env.IMAGE_NAME }}"
             export IMAGE_TAG="latest"
+            export APP_PORT="${{ secrets.APP_PORT }}"
+            if [ -z "$APP_PORT" ]; then export APP_PORT="5051"; fi
             docker compose pull
             docker compose up -d
             docker image prune -f
