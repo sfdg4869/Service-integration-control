@@ -52,7 +52,7 @@ def is_dg_running(status_output: str, instance_id: str, os_name: str, exit_statu
     lower_out = (status_output or "").lower()
     broad_match = any(token in lower_out for token in ["mxg_dgs", "mxg_dg", "dgserver", "datagather"])
 
-    if os_name != "SunOS":
+    if os_name not in {"SunOS", "HP-UX"}:
         if not instance_id or instance_id == "default":
             return "dgserver.jar" in lower_out and exit_status == 0
 
@@ -156,7 +156,7 @@ async def check_status(req: ActionRequest):
             os_profile = get_os_profile(os_res["stdout"].strip())
             user_res = await ssh.execute_command(process_user=None, command=MAXGAUGE_USER_COMMAND)
             actual_user = user_res["stdout"].strip().split("\n")[0] or "maxgauge"
-            status_user = actual_user if os_profile.name == "SunOS" else None
+            status_user = actual_user if os_profile.name in {"SunOS", "HP-UX"} else None
 
             res = await ssh.execute_command(
                 process_user=status_user,
@@ -192,7 +192,7 @@ async def start_service(req: ActionRequest):
                 cmd = build_dgsctl_command(f'$(dirname "$({find_cmd})")', "start")
 
             res = await ssh.execute_command(process_user=actual_user, command=cmd, timeout=180)
-            status_user = actual_user if os_profile.name == "SunOS" else None
+            status_user = actual_user if os_profile.name in {"SunOS", "HP-UX"} else None
             status_res = await ssh.execute_command(
                 process_user=status_user,
                 command=build_dg_status_command(os_profile),
@@ -244,7 +244,7 @@ async def restart_service(req: ActionRequest):
                 cmd = build_dgsctl_command(f'$(dirname "$({find_cmd})")', "restart")
 
             res = await ssh.execute_command(process_user=actual_user, command=cmd, timeout=240)
-            status_user = actual_user if os_profile.name == "SunOS" else None
+            status_user = actual_user if os_profile.name in {"SunOS", "HP-UX"} else None
             status_res = await ssh.execute_command(
                 process_user=status_user,
                 command=build_dg_status_command(os_profile),
@@ -296,7 +296,7 @@ async def stop_service(req: ActionRequest):
                 cmd = build_dgsctl_command(f'$(dirname "$({find_cmd})")', "stop")
 
             res = await ssh.execute_command(process_user=actual_user, command=cmd, timeout=120)
-            status_user = actual_user if os_profile.name == "SunOS" else None
+            status_user = actual_user if os_profile.name in {"SunOS", "HP-UX"} else None
             status_res = await ssh.execute_command(
                 process_user=status_user,
                 command=build_dg_status_command(os_profile),

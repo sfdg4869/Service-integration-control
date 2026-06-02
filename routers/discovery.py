@@ -315,7 +315,7 @@ async def discover_services(req: ActionRequest):
             if needs_rts or needs_dg or needs_pjs:
                 user_res = await ssh.execute_command(None, MAXGAUGE_USER_COMMAND)
                 actual_user = user_res["stdout"].strip().split("\n")[0] or "maxgauge"
-                status_user = actual_user if os_profile.name == "SunOS" else None
+                status_user = actual_user if os_profile.name in {"SunOS", "HP-UX"} else None
 
             if needs_rts or needs_dg:
                 rts_instances = {}
@@ -327,7 +327,7 @@ async def discover_services(req: ActionRequest):
                         r"/bin/mxg_rts$",
                         "-type f",
                     )
-                    res_rts = await ssh.execute_command(None, rts_cmd, timeout=90 if os_profile.name == "SunOS" else 30)
+                    res_rts = await ssh.execute_command(None, rts_cmd, timeout=90 if os_profile.name in {"SunOS", "HP-UX"} else 30)
                     for line in res_rts["stdout"].strip().split("\n"):
                         line = line.strip()
                         if line.endswith("/bin/mxg_rts"):

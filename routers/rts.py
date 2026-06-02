@@ -135,7 +135,7 @@ async def check_status(req: ActionRequest):
             os_profile = get_os_profile(os_res["stdout"].strip())
             user_res = await ssh.execute_command(process_user=None, command=MAXGAUGE_USER_COMMAND)
             actual_user = user_res["stdout"].strip() or "maxgauge"
-            status_user = actual_user if os_profile.name == "SunOS" else None
+            status_user = actual_user if os_profile.name in {"SunOS", "HP-UX"} else None
 
             if req.instance_id and req.instance_id != "default":
                 grep_target = req.instance_id.split("/")[-1] if req.instance_id.startswith("/") else req.instance_id
@@ -169,7 +169,7 @@ async def start_service(req: ActionRequest):
                 cmd = build_rtsctl_command(f'$({find_cmd})', "start")
 
             res = await ssh.execute_command(process_user=actual_user, command=cmd, timeout=180)
-            status_user = actual_user if os_profile.name == "SunOS" else None
+            status_user = actual_user if os_profile.name in {"SunOS", "HP-UX"} else None
             status_res = await ssh.execute_command(
                 process_user=status_user,
                 command=build_rts_status_command(os_profile),
@@ -334,7 +334,7 @@ async def restart_service(req: ActionRequest):
                 cmd = build_rts_updater_restart_command(f'$({find_cmd})')
 
             res = await ssh.execute_command(process_user=actual_user, command=cmd, timeout=240)
-            status_user = actual_user if os_profile.name == "SunOS" else None
+            status_user = actual_user if os_profile.name in {"SunOS", "HP-UX"} else None
             status_res = await ssh.execute_command(
                 process_user=status_user,
                 command=build_rts_status_command(os_profile),

@@ -4,7 +4,7 @@ MAXGAUGE_USER_COMMAND = "id -un maxgauge 2>/dev/null || id -un MaxGauge 2>/dev/n
 
 
 def build_rts_status_command(profile: OSProfile) -> str:
-    if profile.name == "SunOS":
+    if profile.name in {"SunOS", "HP-UX"}:
         proc_filter = "egrep -i 'mxg.*(rts|obsd|updater|sndf)|mxg_(rts|obsd|updater|sndf)'"
     else:
         proc_filter = "grep -E 'mxg_(rts|obsd|updater|sndf)'"
@@ -18,7 +18,7 @@ def build_rts_status_command(profile: OSProfile) -> str:
 
 
 def build_dg_status_command(profile: OSProfile) -> str:
-    if profile.name == "SunOS":
+    if profile.name in {"SunOS", "HP-UX"}:
         proc_filter = "egrep -i 'mxg.*(dgs|dg|obsd)|mxg_(dgs|dg|obsd)|DGServer|DataGather|dgsctl'"
     else:
         proc_filter = "egrep 'mxg_(dgs|dg|obsd)|DGServer|DataGather|dgsctl'"
@@ -33,7 +33,7 @@ def build_dg_status_command(profile: OSProfile) -> str:
 
 def build_pjs_status_command(profile: OSProfile, grep_target: str) -> str:
     if grep_target == "pjs":
-        if profile.name == "SunOS":
+        if profile.name in {"SunOS", "HP-UX"}:
             grep_cmd_part = "egrep -i 'pjs|platformjs|node|npm|mxg.*pjs|mxg.*obsd|mxg_obsd'"
         else:
             grep_cmd_part = "egrep -i 'pjs|platformjs|node|npm|mxg_obsd'"

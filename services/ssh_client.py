@@ -92,7 +92,15 @@ class SSHClientWrapper:
         """
         if process_user and process_user != self.username:
             escaped_command = command.replace("'", "'\\''")
-            full_command = f"sudo su - {process_user} -c '{escaped_command}'"
+            # Prefer sudo when present, but fall back to su for older Unix hosts
+            # like HP-UX where sudo is often absent.
+            full_command = (
+                f"if command -v sudo >/dev/null 2>&1; then "
+                f"sudo su - {process_user} -c '{escaped_command}'; "
+                f"else "
+                f"su - {process_user} -c '{escaped_command}'; "
+                f"fi"
+            )
         else:
             if process_user == self.username:
                 # When we're already the target user, run the command directly.
