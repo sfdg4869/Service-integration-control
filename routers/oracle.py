@@ -29,10 +29,14 @@ def build_oracle_profile_command(sid: str, os_name: str) -> str:
         f'echo "RUN_USER=`id -un 2>/dev/null || whoami 2>/dev/null || echo unknown`"; '
         f'echo "ORACLE_HOME=${{ORACLE_HOME:-}}"; '
         f'if [ -n "$ORACLE_HOME" ]; then export PATH="$ORACLE_HOME/bin:$PATH"; fi; '
+        f'echo "SQLPLUS_PATH_BEFORE=`command -v sqlplus 2>/dev/null || echo NOT_FOUND`"; '
+        f'echo "LSNRCTL_PATH_BEFORE=`command -v lsnrctl 2>/dev/null || echo NOT_FOUND`"; '
         f'if ! command -v sqlplus >/dev/null 2>&1 || ! command -v lsnrctl >/dev/null 2>&1; then '
         f'if [ -f ~/.bash_profile ]; then echo "FALLBACK_PROFILE=$HOME/.bash_profile"; . ~/.bash_profile 2>/dev/null || true; fi; '
         f'if [ -n "$ORACLE_HOME" ]; then ORACLE_HOME=$(printf "%s" "$ORACLE_HOME" | sed "s/[[:space:]]*$//"); export ORACLE_HOME; export PATH="$ORACLE_HOME/bin:$PATH"; fi; '
         f'fi; '
+        f'echo "SQLPLUS_PATH_AFTER=`command -v sqlplus 2>/dev/null || echo NOT_FOUND`"; '
+        f'echo "LSNRCTL_PATH_AFTER=`command -v lsnrctl 2>/dev/null || echo NOT_FOUND`"; '
         f'if [ "{os_name}" = "SunOS" ] && [ -n "$ORACLE_HOME" ]; then export LD_LIBRARY_PATH="$ORACLE_HOME/lib:${{LD_LIBRARY_PATH:-}}"; fi'
     )
 
