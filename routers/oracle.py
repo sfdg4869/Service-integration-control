@@ -22,12 +22,17 @@ def build_oracle_profile_command(sid: str, os_name: str) -> str:
         f"SID_NUM=$(echo '{sid}' | sed 's/^[Oo][Rr][Aa]//' | sed 's/^[Hh][Pp]//' | sed 's/^[Cc][Dd][Bb]//'); "
         f'PROFILE=$(grep -i -l "ORACLE_SID.*$SID_NUM" {shell_profiles} 2>/dev/null | grep -v "_empty" | head -n 1); '
         f'if [ -n "$PROFILE" ]; then echo "ORACLE_PROFILE=$PROFILE"; . "$PROFILE" 2>/dev/null || true; '
-        f'else echo "ORACLE_PROFILE=NONE"; . ~/.profile 2>/dev/null || . ~/.bash_profile 2>/dev/null || . ~/.kshrc 2>/dev/null || true; fi; '
+        f'else echo "ORACLE_PROFILE=NONE"; . ~/.profile 2>/dev/null || . ~/.kshrc 2>/dev/null || true; fi; '
         f'export ORACLE_SID={sid}; '
+        f'if [ -n "$ORACLE_HOME" ]; then ORACLE_HOME=$(printf "%s" "$ORACLE_HOME" | sed "s/[[:space:]]*$//"); export ORACLE_HOME; fi; '
         f'echo "ORACLE_SID=$ORACLE_SID"; '
         f'echo "RUN_USER=`id -un 2>/dev/null || whoami 2>/dev/null || echo unknown`"; '
         f'echo "ORACLE_HOME=${{ORACLE_HOME:-}}"; '
         f'if [ -n "$ORACLE_HOME" ]; then export PATH="$ORACLE_HOME/bin:$PATH"; fi; '
+        f'if ! command -v sqlplus >/dev/null 2>&1 || ! command -v lsnrctl >/dev/null 2>&1; then '
+        f'if [ -f ~/.bash_profile ]; then echo "FALLBACK_PROFILE=$HOME/.bash_profile"; . ~/.bash_profile 2>/dev/null || true; fi; '
+        f'if [ -n "$ORACLE_HOME" ]; then ORACLE_HOME=$(printf "%s" "$ORACLE_HOME" | sed "s/[[:space:]]*$//"); export ORACLE_HOME; export PATH="$ORACLE_HOME/bin:$PATH"; fi; '
+        f'fi; '
         f'if [ "{os_name}" = "SunOS" ] && [ -n "$ORACLE_HOME" ]; then export LD_LIBRARY_PATH="$ORACLE_HOME/lib:${{LD_LIBRARY_PATH:-}}"; fi'
     )
 
