@@ -177,9 +177,24 @@ def _sanitize_version_output(service_type: str, output: str) -> str:
 
 
 def _normalize_full_version_output(output: str) -> str:
-    normalized_lines = [(raw_line or "").rstrip() for raw_line in (output or "").splitlines()]
-    non_empty_lines = [line for line in normalized_lines if line.strip()]
-    return "\n".join(non_empty_lines).strip()
+    cleaned_lines: list[str] = []
+    for raw_line in (output or "").splitlines():
+        line = (raw_line or "").strip()
+        if not line:
+            continue
+        lower_line = line.lower()
+        if (
+            lower_line.startswith(("run_user=", "rts_dir=", "dgs_dir=", "pjs_dir=", "mxg_rc=", "dgs_shell=", "pjs_shell=", "rts_shell="))
+            or lower_line.startswith(("picked up _java_options", "openjdk", "java version", "warning:"))
+            or " not found" in lower_line
+            or ": not found" in lower_line
+            or "command not found" in lower_line
+            or "no such file" in lower_line
+            or "permission denied" in lower_line
+        ):
+            continue
+        cleaned_lines.append(line.rstrip())
+    return "\n".join(cleaned_lines).strip()
 
 
 def _build_version_command(service_type: str, instance_path: str) -> str:
