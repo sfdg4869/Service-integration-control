@@ -83,15 +83,16 @@ header p {
 }
 
 .connection-context {
-    position: sticky;
-    top: 1rem;
-    z-index: 30;
-    width: 100%;
-    max-width: 1100px;
-    margin: -0.5rem auto 0;
-    padding: 1rem 1.25rem;
+    position: fixed;
+    top: 1.25rem;
+    right: 1.25rem;
+    z-index: 60;
+    width: min(360px, calc(100vw - 2rem));
+    margin: 0;
+    padding: 0.95rem 1rem;
     background: rgba(15, 23, 42, 0.9);
     border-color: rgba(56, 189, 248, 0.2);
+    box-shadow: 0 22px 48px rgba(0, 0, 0, 0.42);
 }
 
 .connection-context-header {
@@ -121,30 +122,30 @@ header p {
 
 .connection-context-body {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.75rem;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
 }
 
 .context-pill {
-    background: rgba(30, 41, 59, 0.88);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 0.8rem 0.9rem;
+    background: rgba(30, 41, 59, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 0.6rem 0.75rem;
     min-width: 0;
 }
 
 .context-label {
     display: block;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     color: #94a3b8;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.2rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
 
 .context-value {
     display: block;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     color: #f8fafc;
     font-weight: 600;
     word-break: break-all;
@@ -341,14 +342,18 @@ header p {
 }
 
 @media (max-width: 900px) {
-    .connection-context-body {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .connection-context {
+        top: auto;
+        right: 1rem;
+        bottom: 1rem;
     }
 }
 
 @media (max-width: 640px) {
     .connection-context {
-        top: 0.5rem;
+        left: 0.75rem;
+        right: 0.75rem;
+        bottom: 0.75rem;
         padding: 0.9rem 1rem;
     }
 
@@ -357,9 +362,6 @@ header p {
         align-items: flex-start;
     }
 
-    .connection-context-body {
-        grid-template-columns: 1fr;
-    }
 }
 
 .btn:disabled {

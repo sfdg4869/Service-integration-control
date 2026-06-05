@@ -176,7 +176,7 @@ def _sanitize_version_output(service_type: str, output: str) -> str:
     return ""
 
 
-def _normalize_full_version_output(output: str) -> str:
+def _normalize_full_version_output(service_type: str, output: str) -> str:
     cleaned_lines: list[str] = []
     for raw_line in (output or "").splitlines():
         line = (raw_line or "").strip()
@@ -186,6 +186,7 @@ def _normalize_full_version_output(output: str) -> str:
         if (
             lower_line.startswith(("run_user=", "rts_dir=", "dgs_dir=", "pjs_dir=", "mxg_rc=", "dgs_shell=", "pjs_shell=", "rts_shell="))
             or lower_line.startswith(("picked up _java_options", "openjdk", "java version", "warning:"))
+            or "need to apply .mxgrc" in lower_line
             or " not found" in lower_line
             or ": not found" in lower_line
             or "command not found" in lower_line
@@ -193,6 +194,11 @@ def _normalize_full_version_output(output: str) -> str:
             or "permission denied" in lower_line
         ):
             continue
+
+        if service_type == "rts":
+            if not any(token in lower_line for token in ("version", "build date")):
+                continue
+
         cleaned_lines.append(line.rstrip())
     return "\n".join(cleaned_lines).strip()
 
@@ -420,7 +426,7 @@ async def discover_services(req: ActionRequest):
                                 None,
                                 _build_version_command("rts", p),
                             )
-                            version_full = _normalize_full_version_output(version_res["stdout"]) or "Unknown"
+                            version_full = _normalize_full_version_output("rts", version_res["stdout"]) or "Unknown"
                             version = _sanitize_version_output("rts", version_res["stdout"]) or "Unknown"
 
                         child_processes = _build_rts_child_processes(
@@ -469,7 +475,7 @@ async def discover_services(req: ActionRequest):
                                 None,
                                 _build_version_command("dg", p),
                             )
-                            version_full = _normalize_full_version_output(version_res["stdout"]) or "Unknown"
+                            version_full = _normalize_full_version_output("dg", version_res["stdout"]) or "Unknown"
                             version = _sanitize_version_output("dg", version_res["stdout"]) or "Unknown"
                         services.append(
                             {
@@ -548,7 +554,7 @@ async def discover_services(req: ActionRequest):
                             None,
                             _build_version_command("pjs", p),
                         )
-                        version_full = _normalize_full_version_output(version_res["stdout"]) or "Unknown"
+                        version_full = _normalize_full_version_output("pjs", version_res["stdout"]) or "Unknown"
                         version = _sanitize_version_output("pjs", version_res["stdout"]) or "Unknown"
                     services.append(
                         {
