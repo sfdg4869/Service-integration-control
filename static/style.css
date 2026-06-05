@@ -95,6 +95,54 @@ header p {
     box-shadow: 0 22px 48px rgba(0, 0, 0, 0.42);
 }
 
+.service-quick-nav {
+    position: fixed;
+    top: 1.25rem;
+    left: 1.25rem;
+    z-index: 60;
+    width: min(240px, calc(100vw - 2rem));
+    margin: 0;
+    padding: 0.95rem 1rem;
+    background: rgba(15, 23, 42, 0.9);
+    border-color: rgba(56, 189, 248, 0.18);
+    box-shadow: 0 22px 48px rgba(0, 0, 0, 0.42);
+}
+
+.service-quick-nav-header {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #e2e8f0;
+    margin-bottom: 0.7rem;
+}
+
+.service-quick-nav-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.service-quick-nav-link {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: rgba(30, 41, 59, 0.72);
+    color: #cbd5e1;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
+    padding: 0.65rem 0.8rem;
+    font-size: 0.86rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.service-quick-nav-link:hover {
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.22);
+    color: #f8fafc;
+    transform: translateX(2px);
+}
+
 .connection-context-header {
     display: flex;
     justify-content: space-between;
@@ -296,6 +344,30 @@ header p {
     gap: 0.75rem;
 }
 
+.card-search {
+    margin-bottom: 1rem;
+    padding: 0.95rem 1rem 1rem;
+    background: linear-gradient(135deg, rgba(14, 116, 144, 0.2), rgba(15, 23, 42, 0.82));
+    border: 1px solid rgba(56, 189, 248, 0.26);
+    border-radius: 12px;
+    box-shadow: 0 14px 30px -20px rgba(56, 189, 248, 0.7);
+}
+
+.card-search-label {
+    font-size: 0.84rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #67e8f9;
+    margin-bottom: 0.28rem;
+}
+
+.card-search-hint {
+    font-size: 0.78rem;
+    color: #cbd5e1;
+    margin-bottom: 0.72rem;
+}
+
 .btn {
     flex: 1;
     padding: 0.75rem;
@@ -347,6 +419,11 @@ header p {
         right: 1rem;
         bottom: 1rem;
     }
+
+    .service-quick-nav {
+        top: 1rem;
+        left: 1rem;
+    }
 }
 
 @media (max-width: 640px) {
@@ -355,6 +432,15 @@ header p {
         right: 0.75rem;
         bottom: 0.75rem;
         padding: 0.9rem 1rem;
+    }
+
+    .service-quick-nav {
+        left: 0.75rem;
+        right: 0.75rem;
+        top: auto;
+        bottom: 10.25rem;
+        width: auto;
+        padding: 0.85rem 0.95rem;
     }
 
     .connection-context-header {
@@ -401,4 +487,24 @@ header p {
 .micro-input:focus {
     outline: none;
     border-color: #8b5cf6;
+}
+
+.card-search-input {
+    width: 100%;
+    background: rgba(2, 6, 23, 0.72);
+    border: 1px solid rgba(103, 232, 249, 0.28);
+    border-radius: 10px;
+    padding: 0.72rem 0.9rem;
+    font-size: 0.92rem;
+    color: #f8fafc;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.card-search-input::placeholder {
+    color: #94a3b8;
+}
+
+.card-search-input:focus {
+    border-color: #22d3ee;
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.18), 0 10px 24px -18px rgba(34, 211, 238, 0.9);
 }

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Server Automation Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css?v=4">
+    <link rel="stylesheet" href="/static/style.css?v=8">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 
@@ -108,13 +108,18 @@
             <div id="connection-context-body" class="connection-context-body"></div>
         </section>
 
+        <nav id="service-quick-nav" class="service-quick-nav glass-panel" style="display: none;">
+            <div class="service-quick-nav-header">바로가기</div>
+            <div id="service-quick-nav-body" class="service-quick-nav-body"></div>
+        </nav>
+
         <!-- Dynamic Container for Discovered Services -->
         <section class="services-dashboard" id="dynamic-dashboard">
             <!-- Cards will be injected here by app.js -->
         </section>
     </div>
 
-    <script src="/static/app.js?v=27"></script>
+    <script src="/static/app.js?v=31"></script>
 </body>
 
 </html>

@@ -51,6 +51,36 @@ function renderConnectionContext(statusText = 'Active') {
     panel.style.display = 'block';
 }
 
+function renderServiceQuickNav(services) {
+    const panel = document.getElementById('service-quick-nav');
+    const body = document.getElementById('service-quick-nav-body');
+
+    if (!panel || !body) return;
+
+    const orderedTypes = ['oracle', 'postgres', 'rts', 'dg', 'pjs'];
+    const availableTypes = orderedTypes.filter(type => services.some(service => service.type === type));
+
+    if (availableTypes.length === 0) {
+        panel.style.display = 'none';
+        body.innerHTML = '';
+        return;
+    }
+
+    body.innerHTML = availableTypes.map(type => {
+        const cardId = `card-${type}`;
+        const label = serviceDisplayNames[type] || type;
+        return `<button type="button" class="service-quick-nav-link" onclick="scrollToServiceCard('${cardId}')">${label}</button>`;
+    }).join('');
+
+    panel.style.display = 'block';
+}
+
+function scrollToServiceCard(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function copyText(text, successMessage) {
     const normalizedText = String(text ?? '').trim();
     if (!normalizedText) return false;
@@ -150,6 +180,7 @@ async function discoverServices() {
 
     const btn = document.getElementById('discover-btn');
     const dashboard = document.getElementById('dynamic-dashboard');
+    renderServiceQuickNav([]);
 
     btn.disabled = true;
     btn.innerText = "서버 탐색 중... (Scanning)";
@@ -188,6 +219,7 @@ function renderDashboard(services) {
         return;
     }
 
+    renderServiceQuickNav(services);
     const types = ['oracle', 'postgres', 'rts', 'dg', 'pjs'];
     const typeNames = {
         'oracle': 'Oracle DB',
@@ -204,7 +236,7 @@ function renderDashboard(services) {
         'dg': `<img src="/static/maxgauge.png" alt="MaxGauge DG" style="height: 1.6rem; object-fit: contain; margin-right: 0.5rem; filter: hue-rotate(180deg);" onerror="this.style.display='none'">`,
         'pjs': `<img src="/static/maxgauge.png" alt="MaxGauge PJS" style="height: 1.6rem; object-fit: contain; margin-right: 0.5rem; filter: hue-rotate(90deg);" onerror="this.style.display='none'">`
     };
-    const searchableTypes = ['rts', 'dg', 'pjs'];
+    const searchableTypes = ['oracle', 'postgres', 'rts', 'dg', 'pjs'];
     const restartableTypes = ['rts', 'dg', 'pjs'];
 
     types.forEach(type => {
@@ -273,15 +305,17 @@ function renderDashboard(services) {
         });
 
         const searchHtml = searchableTypes.includes(type)
-            ? `<div class="card-search" style="margin-bottom: 1rem;">
+            ? `<div class="card-search">
+                    <div class="card-search-label">Quick Search</div>
+                    <div class="card-search-hint">Name, path, version, child process</div>
                     <input
                         type="text"
-                        class="micro-input"
-                        placeholder="Search name, path, version, child process..."
+                        class="micro-input card-search-input"
+                        placeholder="Type to filter this service list..."
                         oninput="applyInstanceFilter('${cardId}', this.value)"
                     >
                </div>`
-            : '';
+              : '';
 
         const cardHTML = `
             <div class="service-card glass-panel" id="${cardId}">
