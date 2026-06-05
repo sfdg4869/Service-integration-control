@@ -84,6 +84,89 @@ header p {
     width: 100%;
 }
 
+.connection-context {
+    position: sticky;
+    top: 1rem;
+    z-index: 30;
+    width: 100%;
+    max-width: 1100px;
+    margin: -0.5rem auto 0;
+    padding: 1rem 1.25rem;
+    background: rgba(15, 23, 42, 0.9);
+    border-color: rgba(56, 189, 248, 0.2);
+}
+
+.connection-context-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.connection-context-header h3 {
+    font-size: 1rem;
+    color: #e2e8f0;
+}
+
+.connection-context-status {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.24);
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+}
+
+.connection-context-body {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.context-pill {
+    background: rgba(30, 41, 59, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 0.8rem 0.9rem;
+    min-width: 0;
+}
+
+.context-label {
+    display: block;
+    font-size: 0.72rem;
+    color: #94a3b8;
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.context-value {
+    display: block;
+    font-size: 0.95rem;
+    color: #f8fafc;
+    font-weight: 600;
+    word-break: break-all;
+}
+
+.copy-inline-btn {
+    transition: color 0.18s ease, opacity 0.18s ease;
+}
+
+.copy-inline-btn:hover {
+    color: #cbd5e1 !important;
+    opacity: 0.95;
+}
+
+.copy-inline-btn:focus-visible {
+    outline: 1px solid rgba(56, 189, 248, 0.45);
+    outline-offset: 3px;
+    border-radius: 4px;
+}
+
 .auth-section h2 {
     margin-bottom: 1.5rem;
     font-size: 1.5rem;
@@ -257,6 +340,28 @@ header p {
 
 .stop-btn:hover {
     background: rgba(239, 68, 68, 0.2);
+}
+
+@media (max-width: 900px) {
+    .connection-context-body {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .connection-context {
+        top: 0.5rem;
+        padding: 0.9rem 1rem;
+    }
+
+    .connection-context-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .connection-context-body {
+        grid-template-columns: 1fr;
+    }
 }
 
 .btn:disabled {

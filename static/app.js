@@ -1,3 +1,118 @@
+const serviceDisplayNames = {
+    oracle: 'Oracle DB',
+    postgres: 'PostgreSQL',
+    rts: 'RTS Process',
+    dg: 'DataGather',
+    pjs: 'PlatformJS'
+};
+
+let currentConnectionContext = null;
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderConnectionContext(statusText = 'Active') {
+    const panel = document.getElementById('connection-context');
+    const status = document.getElementById('connection-context-status');
+    const body = document.getElementById('connection-context-body');
+
+    if (!panel || !status || !body || !currentConnectionContext) return;
+
+    const serviceNames = (currentConnectionContext.target_services || [])
+        .map(type => serviceDisplayNames[type] || type)
+        .join(', ');
+
+    body.innerHTML = `
+        <div class="context-pill">
+            <span class="context-label">Host</span>
+            <span class="context-value">${escapeHtml(currentConnectionContext.host)}</span>
+        </div>
+        <div class="context-pill">
+            <span class="context-label">SSH Port</span>
+            <span class="context-value">${escapeHtml(currentConnectionContext.port)}</span>
+        </div>
+        <div class="context-pill">
+            <span class="context-label">Discovery User</span>
+            <span class="context-value">${escapeHtml(currentConnectionContext.username)}</span>
+        </div>
+        <div class="context-pill">
+            <span class="context-label">Target Services</span>
+            <span class="context-value">${escapeHtml(serviceNames || 'None')}</span>
+        </div>
+    `;
+
+    status.innerText = statusText;
+    panel.style.display = 'block';
+}
+
+async function copyText(text, successMessage) {
+    const normalizedText = String(text ?? '').trim();
+    if (!normalizedText) return false;
+
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(normalizedText);
+        } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = normalizedText;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'absolute';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        }
+        if (successMessage) {
+            showCopyToast(successMessage);
+        }
+        return true;
+    } catch (err) {
+        console.error('Copy failed', err);
+        showCopyToast('복사 실패');
+        return false;
+    }
+}
+
+function showCopyToast(message) {
+    let toast = document.getElementById('copy-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'copy-toast';
+        toast.style.position = 'fixed';
+        toast.style.right = '1.25rem';
+        toast.style.bottom = '1.25rem';
+        toast.style.zIndex = '9999';
+        toast.style.padding = '0.7rem 0.95rem';
+        toast.style.borderRadius = '12px';
+        toast.style.background = 'rgba(15, 23, 42, 0.92)';
+        toast.style.border = '1px solid rgba(56, 189, 248, 0.25)';
+        toast.style.color = '#e2e8f0';
+        toast.style.fontSize = '0.85rem';
+        toast.style.boxShadow = '0 18px 40px rgba(0,0,0,0.35)';
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        toast.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
+        document.body.appendChild(toast);
+    }
+
+    toast.textContent = message;
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+
+    clearTimeout(showCopyToast._timer);
+    showCopyToast._timer = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+    }, 1400);
+}
+
 function getCredentials() {
     const host = document.getElementById('host').value;
     const port = parseInt(document.getElementById('port').value || 10022);
@@ -25,6 +140,14 @@ async function discoverServices() {
     const creds = getCredentials();
     if (!creds) return;
 
+    currentConnectionContext = {
+        host: creds.host,
+        port: creds.port,
+        username: creds.username,
+        target_services: creds.target_services
+    };
+    renderConnectionContext('Scanning');
+
     const btn = document.getElementById('discover-btn');
     const dashboard = document.getElementById('dynamic-dashboard');
 
@@ -41,11 +164,14 @@ async function discoverServices() {
         const data = await response.json();
 
         if (data.success && data.services) {
+            renderConnectionContext('Connected');
             renderDashboard(data.services);
         } else {
+            renderConnectionContext('Scan Failed');
             dashboard.innerHTML = `<p style="color:#ef4444; width:100%; text-align:center;">탐색 실패: ${data.error || '알 수 없는 오류'}</p>`;
         }
     } catch (err) {
+        renderConnectionContext('Network Error');
         dashboard.innerHTML = `<p style="color:#ef4444; width:100%; text-align:center;">네트워크 에러: ${err.message}</p>`;
     } finally {
         btn.disabled = false;
@@ -92,10 +218,13 @@ function renderDashboard(services) {
         let instancesHtml = '';
         typeServices.forEach(srv => {
             const displayId = srv.display_id || srv.instance_id;
-            const pathInfo = srv.path ? `<div style="font-size: 0.75rem; color: #64748b; margin-top: 0.2rem; margin-left: 1.5rem; word-break: break-all;">${srv.path}</div>` : '';
             const versionText = srv.version || 'Unknown';
+            const versionFullText = srv.version_full || versionText || 'Unknown';
             const versionLabel = /version\s*:/i.test(versionText) ? versionText : `Version: ${versionText}`;
-            const versionInfo = `<div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.15rem; margin-left: 1.5rem;">${versionLabel}</div>`;
+            const escapedPath = JSON.stringify(srv.path || '');
+            const escapedVersionFull = JSON.stringify(versionFullText);
+            const pathInfo = srv.path ? `<button type="button" class="copy-inline-btn" title="경로 복사" style="display:block; width:fit-content; max-width:100%; background:none; border:none; padding:0; text-align:left; font-size:0.75rem; color:#64748b; margin-top:0.2rem; margin-left:1.5rem; word-break:break-all; cursor:pointer;" onclick='copyText(${escapedPath}, "경로 복사됨")'>${escapeHtml(srv.path)}</button>` : '';
+            const versionInfo = `<button type="button" class="copy-inline-btn" title="버전 전체 출력 복사" style="display:block; width:fit-content; max-width:100%; background:none; border:none; padding:0; text-align:left; font-size:0.75rem; color:#94a3b8; margin-top:0.15rem; margin-left:1.5rem; word-break:break-all; cursor:pointer;" onclick='copyText(${escapedVersionFull}, "버전 정보 복사됨")'>${escapeHtml(versionLabel)}</button>`;
             const childProcesses = normalizeChildProcesses(type, srv.child_processes);
             const searchText = [
                 displayId,
@@ -646,6 +775,7 @@ async function controlService(type, action, instanceId, cardId) {
         if (data.success) {
             logText = `[SUCCESS] Action completed.\n${data.logs}\n${data.error}`;
         } else {
+            renderConnectionContext('Action Failed');
             const reason = data.error || data.message || data.logs || 'No error text returned.';
             logText = `[FAILED] Error occurred.\n${reason}\n${data.logs || ''}`;
         }

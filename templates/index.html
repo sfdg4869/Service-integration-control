@@ -100,13 +100,21 @@
             </form>
         </section>
 
+        <section id="connection-context" class="connection-context glass-panel" style="display: none;">
+            <div class="connection-context-header">
+                <h3>현재 접속 정보</h3>
+                <span id="connection-context-status" class="connection-context-status">Ready</span>
+            </div>
+            <div id="connection-context-body" class="connection-context-body"></div>
+        </section>
+
         <!-- Dynamic Container for Discovered Services -->
         <section class="services-dashboard" id="dynamic-dashboard">
             <!-- Cards will be injected here by app.js -->
         </section>
     </div>
 
-    <script src="/static/app.js?v=25"></script>
+    <script src="/static/app.js?v=27"></script>
 </body>
 
 </html>

@@ -176,6 +176,12 @@ def _sanitize_version_output(service_type: str, output: str) -> str:
     return ""
 
 
+def _normalize_full_version_output(output: str) -> str:
+    normalized_lines = [(raw_line or "").rstrip() for raw_line in (output or "").splitlines()]
+    non_empty_lines = [line for line in normalized_lines if line.strip()]
+    return "\n".join(non_empty_lines).strip()
+
+
 def _build_version_command(service_type: str, instance_path: str) -> str:
     if service_type == "rts":
         attempts = [
@@ -388,6 +394,7 @@ async def discover_services(req: ActionRequest):
                     for p, meta in rts_instances.items():
                         updater_available = False
                         version = "Unknown"
+                        version_full = "Unknown"
                         if p.startswith("/"):
                             updater_check = await ssh.execute_command(
                                 None,
@@ -398,6 +405,7 @@ async def discover_services(req: ActionRequest):
                                 None,
                                 _build_version_command("rts", p),
                             )
+                            version_full = _normalize_full_version_output(version_res["stdout"]) or "Unknown"
                             version = _sanitize_version_output("rts", version_res["stdout"]) or "Unknown"
 
                         child_processes = _build_rts_child_processes(
@@ -412,6 +420,7 @@ async def discover_services(req: ActionRequest):
                                 "display_id": meta["name"],
                                 "path": p if p.startswith("/") else "",
                                 "version": version,
+                                "version_full": version_full,
                                 "child_processes": child_processes,
                                 "run_as": actual_user,
                             }
@@ -424,6 +433,7 @@ async def discover_services(req: ActionRequest):
                                 "name": "RTS (Default)",
                                 "instance_id": "default",
                                 "version": "Unknown",
+                                "version_full": "Unknown",
                                 "child_processes": _build_rts_child_processes(set(), False),
                                 "run_as": actual_user,
                             }
@@ -433,6 +443,7 @@ async def discover_services(req: ActionRequest):
                     for p, meta in dg_instances.items():
                         obsd_available = False
                         version = "Unknown"
+                        version_full = "Unknown"
                         if p.startswith("/"):
                             obsd_check = await ssh.execute_command(
                                 None,
@@ -443,6 +454,7 @@ async def discover_services(req: ActionRequest):
                                 None,
                                 _build_version_command("dg", p),
                             )
+                            version_full = _normalize_full_version_output(version_res["stdout"]) or "Unknown"
                             version = _sanitize_version_output("dg", version_res["stdout"]) or "Unknown"
                         services.append(
                             {
@@ -452,6 +464,7 @@ async def discover_services(req: ActionRequest):
                                 "display_id": meta["name"],
                                 "path": p if p.startswith("/") else "",
                                 "version": version,
+                                "version_full": version_full,
                                 "child_processes": _build_single_child_process(
                                     "obsd",
                                     set(),
@@ -468,6 +481,7 @@ async def discover_services(req: ActionRequest):
                                 "name": "DG (Default)",
                                 "instance_id": "default",
                                 "version": "Unknown",
+                                "version_full": "Unknown",
                                 "child_processes": _build_single_child_process("obsd", set(), False),
                                 "run_as": actual_user,
                             }
@@ -508,6 +522,7 @@ async def discover_services(req: ActionRequest):
                 for p, meta in pjs_instances.items():
                     obsd_available = False
                     version = "Unknown"
+                    version_full = "Unknown"
                     if p.startswith("/"):
                         obsd_check = await ssh.execute_command(
                             None,
@@ -518,6 +533,7 @@ async def discover_services(req: ActionRequest):
                             None,
                             _build_version_command("pjs", p),
                         )
+                        version_full = _normalize_full_version_output(version_res["stdout"]) or "Unknown"
                         version = _sanitize_version_output("pjs", version_res["stdout"]) or "Unknown"
                     services.append(
                         {
@@ -527,6 +543,7 @@ async def discover_services(req: ActionRequest):
                             "display_id": meta["name"],
                             "path": p if p.startswith("/") else "",
                             "version": version,
+                            "version_full": version_full,
                             "child_processes": _build_single_child_process(
                                 "obsd",
                                 set(),
@@ -542,6 +559,7 @@ async def discover_services(req: ActionRequest):
                             "name": "PJS (Default)",
                             "instance_id": "default",
                             "version": "Unknown",
+                            "version_full": "Unknown",
                             "child_processes": _build_single_child_process("obsd", set(), False),
                             "run_as": actual_user,
                         }
