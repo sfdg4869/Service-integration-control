@@ -7,6 +7,7 @@ const serviceDisplayNames = {
 };
 
 let currentConnectionContext = null;
+const runtimePortTypes = ['rts', 'dg', 'pjs'];
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -79,6 +80,15 @@ function scrollToServiceCard(cardId) {
     const card = document.getElementById(cardId);
     if (!card) return;
     card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function escapeAttr(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 
 async function copyText(text, successMessage) {
@@ -160,6 +170,21 @@ function getCredentials() {
 
     if (target_services.length === 0) {
         alert("Please select at least one service to scan.");
+        return null;
+    }
+
+    return { host, port, username, password, target_services };
+}
+
+function getCredentialsSilently() {
+    const host = document.getElementById('host')?.value || '';
+    const port = parseInt(document.getElementById('port')?.value || 10022);
+    const username = document.getElementById('username')?.value || '';
+    const password = document.getElementById('password')?.value || '';
+    const checkboxes = document.querySelectorAll('.chk-target:checked');
+    const target_services = Array.from(checkboxes).map(chk => chk.value);
+
+    if (!host || !username || !password) {
         return null;
     }
 
@@ -257,6 +282,9 @@ function renderDashboard(services) {
             const escapedVersionFull = JSON.stringify(versionFullText);
             const pathInfo = srv.path ? `<button type="button" class="copy-inline-btn" title="경로 복사" style="display:block; width:fit-content; max-width:100%; background:none; border:none; padding:0; text-align:left; font-size:0.75rem; color:#64748b; margin-top:0.2rem; margin-left:1.5rem; word-break:break-all; cursor:pointer;" onclick='copyText(${escapedPath}, "경로 복사됨")'>${escapeHtml(srv.path)}</button>` : '';
             const versionInfo = `<button type="button" class="copy-inline-btn" title="버전 전체 출력 복사" style="display:block; width:fit-content; max-width:100%; background:none; border:none; padding:0; text-align:left; font-size:0.75rem; color:#94a3b8; margin-top:0.15rem; margin-left:1.5rem; word-break:break-all; cursor:pointer;" onclick='copyText(${escapedVersionFull}, "버전 정보 복사됨")'>${escapeHtml(versionLabel)}</button>`;
+            const runtimeMetaInfo = runtimePortTypes.includes(type)
+                ? `<div id="runtime-meta-${cardId}-${srv.instance_id}" class="runtime-meta-line" data-instance-id="${escapeAttr(srv.instance_id)}" data-display-id="${escapeAttr(displayId)}" data-instance-path="${escapeAttr(srv.path || '')}" style="display:none; font-size:0.75rem; color:#94a3b8; margin-top:0.15rem; margin-left:1.5rem; word-break:break-all;"></div>`
+                : '';
             const childProcesses = normalizeChildProcesses(type, srv.child_processes);
             const searchText = [
                 displayId,
@@ -285,7 +313,7 @@ function renderDashboard(services) {
                 : '';
 
             instancesHtml += `
-                <div class="instance-row" data-search="${searchText}" style="padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <div class="instance-row" data-search="${searchText}" data-instance-path="${escapeAttr(srv.path || '')}" data-display-id="${escapeAttr(displayId)}" style="padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div style="font-weight: 500; color: #38bdf8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;" class="instance-item" data-id="${srv.instance_id}">
                             <span id="dot-${cardId}-${srv.instance_id}" class="dot unknown" style="width: 10px; height: 10px; display: inline-block;"></span>
@@ -299,6 +327,7 @@ function renderDashboard(services) {
                     </div>
                     ${pathInfo}
                     ${versionInfo}
+                    ${runtimeMetaInfo}
                     ${companionInfo}
                 </div>
             `;
@@ -396,6 +425,135 @@ function applyInstanceFilter(cardId, query) {
     const emptyState = card.querySelector('.instance-empty-state');
     if (emptyState) {
         emptyState.style.display = visibleCount === 0 ? 'block' : 'none';
+    }
+}
+
+function normalizeComparablePath(path) {
+    return String(path || '')
+        .trim()
+        .replace(/\\/g, '/')
+        .replace(/\/+$/, '')
+        .toLowerCase();
+}
+
+function setRuntimeMeta(cardId, instanceId, text) {
+    const el = document.getElementById(`runtime-meta-${cardId}-${instanceId}`);
+    if (!el) return;
+    el.innerText = text;
+    el.style.display = text ? 'block' : 'none';
+}
+
+function clearRuntimeMeta(cardId, instanceId) {
+    setRuntimeMeta(cardId, instanceId, '');
+}
+
+function formatRuntimeMeta(item) {
+    if (!item || !item.pid) return '';
+    const ports = Array.isArray(item.ports) ? item.ports.filter(Boolean) : [];
+    if (ports.length <= 1) {
+        return `PID: ${item.pid} | Port: ${ports[0] || 'none'}`;
+    }
+    return `PID: ${item.pid} | Ports: ${ports.join(', ')}`;
+}
+
+function findRuntimeItemForInstance(type, row, items) {
+    const instanceId = row.querySelector('.instance-item')?.getAttribute('data-id') || '';
+    const displayId = row.getAttribute('data-display-id') || '';
+    const instancePath = normalizeComparablePath(row.getAttribute('data-instance-path') || '');
+    const instanceName = normalizeComparablePath(instanceId.split('/').pop());
+    const displayName = normalizeComparablePath(displayId);
+
+    const normalizedItems = (items || []).map(item => ({
+        ...item,
+        _base: normalizeComparablePath(item.base_path || ''),
+        _key: normalizeComparablePath(item.key || ''),
+    }));
+
+    if (instancePath) {
+        const pathMatch = normalizedItems.find(item =>
+            item._base && (
+                item._base === instancePath ||
+                item._base.startsWith(`${instancePath}/`) ||
+                instancePath.startsWith(`${item._base}/`)
+            )
+        );
+        if (pathMatch) return pathMatch;
+    }
+
+    if (type === 'dg') {
+        const dgMatch = normalizedItems.find(item =>
+            item._key && (item._key === instanceName || item._key.endsWith(`_${instanceName}`))
+        );
+        if (dgMatch) return dgMatch;
+    }
+
+    if (type === 'rts') {
+        const rtsMatch = normalizedItems.find(item =>
+            item._key && (item._key === instanceName || item._key === displayName)
+        );
+        if (rtsMatch) return rtsMatch;
+    }
+
+    if (type === 'pjs') {
+        const pjsMatch = normalizedItems.find(item =>
+            item._base && item._base.endsWith(`/${instanceName}`)
+        );
+        if (pjsMatch) return pjsMatch;
+    }
+
+    return normalizedItems.find(item => item._key && (item._key === displayName || item._key === instanceName)) || null;
+}
+
+async function fetchRuntimePorts(type, cardId) {
+    if (!runtimePortTypes.includes(type)) return;
+
+    const creds = getCredentialsSilently();
+    if (!creds) return;
+
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    const rows = Array.from(card.querySelectorAll('.instance-row'));
+    if (rows.length === 0) return;
+
+    try {
+        const response = await fetch('/api/runtime-ports/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                host: creds.host,
+                port: creds.port,
+                username: creds.username,
+                password: creds.password,
+                service_type: type
+            })
+        });
+        const data = await response.json();
+
+        rows.forEach(row => {
+            const instanceId = row.querySelector('.instance-item')?.getAttribute('data-id') || '';
+            if (!instanceId) return;
+
+            if (!data.success || data.supported === false) {
+                clearRuntimeMeta(cardId, instanceId);
+                return;
+            }
+
+            const matched = findRuntimeItemForInstance(type, row, data.items || []);
+            const text = formatRuntimeMeta(matched);
+            if (text) {
+                setRuntimeMeta(cardId, instanceId, text);
+            } else {
+                clearRuntimeMeta(cardId, instanceId);
+            }
+        });
+    } catch (err) {
+        rows.forEach(row => {
+            const instanceId = row.querySelector('.instance-item')?.getAttribute('data-id') || '';
+            if (instanceId) {
+                clearRuntimeMeta(cardId, instanceId);
+            }
+        });
     }
 }
 
@@ -756,6 +914,7 @@ async function checkStatus(type, instanceId, cardId) {
             }));
 
             updateMultiInstanceStatus(cardId, type, Object.fromEntries(responses));
+            await fetchRuntimePorts(type, cardId);
             return;
         }
 
@@ -766,6 +925,7 @@ async function checkStatus(type, instanceId, cardId) {
         });
         const data = await response.json();
         updateStatusUI(cardId, data, type);
+        await fetchRuntimePorts(type, cardId);
     } catch (err) {
         updateStatusUI(cardId, { status: 'error', message: err.message });
     } finally {

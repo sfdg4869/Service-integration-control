@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from routers import postgres, oracle, rts, discovery, dg, pjs
+from routers import postgres, oracle, rts, discovery, dg, pjs, runtime_ports
 import os
 
 app = FastAPI(title="Server Automation App")
@@ -22,6 +22,7 @@ app.include_router(oracle.router, prefix="/api/oracle", tags=["oracle"])
 app.include_router(rts.router, prefix="/api/rts", tags=["rts"])
 app.include_router(dg.router, prefix="/api/dg", tags=["dg"])
 app.include_router(pjs.router, prefix="/api/pjs", tags=["pjs"])
+app.include_router(runtime_ports.router, prefix="/api/runtime-ports", tags=["runtime-ports"])
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend(request: Request):
