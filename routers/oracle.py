@@ -18,6 +18,19 @@ class ActionRequest(BaseModel):
 
 def build_oracle_profile_command(sid: str, os_name: str) -> str:
     shell_profiles = "~/.ora* ~/.profile ~/.bash_profile ~/.bashrc ~/.kshrc"
+    sunos_oracle_home_fallback = (
+        'if [ "SunOS" = "' + os_name + '" ] && [ -z "$ORACLE_HOME" ]; then '
+        'SQLPLUS_BIN=`command -v sqlplus 2>/dev/null || true`; '
+        'if [ -z "$SQLPLUS_BIN" ] && [ -f ~/.bash_profile ]; then '
+        'echo "FALLBACK_PROFILE=$HOME/.bash_profile"; . ~/.bash_profile 2>/dev/null || true; '
+        'SQLPLUS_BIN=`command -v sqlplus 2>/dev/null || true`; '
+        'fi; '
+        'if [ -z "$ORACLE_HOME" ] && [ -n "$SQLPLUS_BIN" ]; then '
+        "ORACLE_HOME=`dirname \"$SQLPLUS_BIN\" | sed 's#/bin$##'`; "
+        'export ORACLE_HOME; '
+        'fi; '
+        'fi; '
+    )
     return (
         f"SID_NUM=$(echo '{sid}' | sed 's/^[Oo][Rr][Aa]//' | sed 's/^[Hh][Pp]//' | sed 's/^[Cc][Dd][Bb]//'); "
         f'PROFILE=$(grep -i -l "ORACLE_SID.*$SID_NUM" {shell_profiles} 2>/dev/null | grep -v "_empty" | head -n 1); '
@@ -25,6 +38,7 @@ def build_oracle_profile_command(sid: str, os_name: str) -> str:
         f'else echo "ORACLE_PROFILE=NONE"; . ~/.profile 2>/dev/null || . ~/.kshrc 2>/dev/null || true; fi; '
         f'export ORACLE_SID={sid}; '
         f'if [ -n "$ORACLE_HOME" ]; then ORACLE_HOME=$(printf "%s" "$ORACLE_HOME" | sed "s/[[:space:]]*$//"); export ORACLE_HOME; fi; '
+        f'{sunos_oracle_home_fallback}'
         f'echo "ORACLE_SID=$ORACLE_SID"; '
         f'echo "RUN_USER=`id -un 2>/dev/null || whoami 2>/dev/null || echo unknown`"; '
         f'echo "ORACLE_HOME=${{ORACLE_HOME:-}}"; '

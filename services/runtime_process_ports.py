@@ -60,10 +60,16 @@ def parse_runtime_process_port_output(
 
 
 def build_runtime_process_port_command(service_type: str, profile: OSProfile) -> str:
+    normalized = (service_type or "").strip().lower()
+    if profile.name == "SunOS" and normalized == "rts":
+        return _build_rts_runtime_port_command_sunos(profile)
+    if profile.name == "AIX" and normalized == "rts":
+        return _build_rts_runtime_port_command_aix(profile)
+    if profile.name == "HP-UX" and normalized == "rts":
+        return _build_rts_runtime_port_command_hpux(profile)
     if profile.name != "Linux":
         return 'echo "UNSUPPORTED_OS"'
 
-    normalized = (service_type or "").strip().lower()
     if normalized == "rts":
         return _build_rts_runtime_port_command(profile)
     if normalized == "dg":
@@ -107,6 +113,50 @@ def _build_rts_runtime_port_command(profile: OSProfile) -> str:
   fi
   {port_lookup}
   printf "KEY=%s\\tPID=%s\\tPORT=%s\\tBASE=%s\\n" "$key" "$pid" "${{ports:-}}" "$base"
+done | sort
+""".strip()
+
+
+def _build_rts_runtime_port_command_sunos(profile: OSProfile) -> str:
+    return f"""
+for pid in `{profile.ps_command} | grep '[m]xg_rts' | awk '{{print $2}}'`; do
+  key=`{profile.ps_command} | grep "[m]xg_rts" | grep " $pid " | sed -n 's/.*-c \\([^ ]*\\).*/\\1/p'`
+  port=`pfiles $pid 2>/dev/null | awk '
+    /sockname: AF_INET/ {{ p=$NF }}
+    /SO_ACCEPTCONN/      {{ print p }}' | sort -u | paste -sd, -`
+  printf "KEY=%s\\tPID=%s\\tPORT=%s\\n" "$key" "$pid" "${{port:-none}}"
+done | sort
+""".strip()
+
+
+def _build_rts_runtime_port_command_aix(profile: OSProfile) -> str:
+    return """
+ps -ef | grep mxg_rts | grep -v grep | while read -r line; do
+  pid=`echo "$line" | awk '{print $2}'`
+  key=`echo "$line" | awk '{for(i=1;i<=NF;i++) if($i=="c"){print $(i+1);break}}'`
+  wd=`procwdx $pid 2>/dev/null | awk '{print $2}'`
+  port=`grep -i 'daemon_port' ${wd}conf/${key}/rts.conf 2>/dev/null | head -1 | awk -F'=' '{gsub(/[^0-9]/,"",$2); print $2}'`
+  echo "KEY=$key\tPID=$pid\tPORT=${port:-?}"
+done
+""".strip()
+
+
+def _build_rts_runtime_port_command_hpux(profile: OSProfile) -> str:
+    return f"""
+LSOF_BIN=`command -v lsof 2>/dev/null || true`
+if [ -z "$LSOF_BIN" ]; then
+  for p in /usr/sbin/lsof /usr/bin/lsof /usr/local/bin/lsof /opt/lsof/bin/lsof; do
+    if [ -x "$p" ]; then
+      LSOF_BIN="$p"
+      break
+    fi
+  done
+fi
+{profile.ps_command} | grep '[m]xg_rts' | grep -v grep | while read -r line; do
+  pid=`echo "$line" | awk '{{print $2}}'`
+  key=`echo "$line" | sed -n 's/.*-c \\([^ ]*\\).*/\\1/p'`
+  port=`"$LSOF_BIN" -p $pid 2>/dev/null | grep LISTEN | awk '{{print $9}}' | sed 's/.*://' | sort -u | paste -sd, -`
+  printf "KEY=%s\\tPID=%s\\tPORT=%s\\n" "$key" "$pid" "${{port:-none}}"
 done | sort
 """.strip()
 

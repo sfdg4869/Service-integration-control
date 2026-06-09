@@ -30,7 +30,13 @@ async def get_runtime_ports(req: RuntimePortRequest):
             os_profile = get_os_profile(os_res["stdout"].strip())
             normalized_type = (req.service_type or "").strip().lower()
 
-            if os_profile.name != "Linux":
+            is_supported = (
+                os_profile.name == "Linux"
+                or (os_profile.name == "SunOS" and normalized_type == "rts")
+                or (os_profile.name == "HP-UX" and normalized_type == "rts")
+                or (os_profile.name == "AIX" and normalized_type == "rts")
+            )
+            if not is_supported:
                 return {"success": True, "service_type": req.service_type, "items": [], "supported": False}
 
             user_res = await ssh.execute_command(process_user=None, command=MAXGAUGE_USER_COMMAND)
