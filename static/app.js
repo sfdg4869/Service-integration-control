@@ -7,7 +7,7 @@ const serviceDisplayNames = {
 };
 
 let currentConnectionContext = null;
-const runtimePortTypes = ['rts', 'dg', 'pjs'];
+const runtimePortTypes = ['oracle', 'postgres', 'rts', 'dg', 'pjs'];
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -89,6 +89,10 @@ function escapeAttr(value) {
         .replace(/'/g, '&#39;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
+}
+
+function buildVersionLabel(versionText) {
+    return /version\s*:/i.test(versionText) ? versionText : `Version: ${versionText}`;
 }
 
 async function copyText(text, successMessage) {
@@ -450,10 +454,76 @@ function clearRuntimeMeta(cardId, instanceId) {
 function formatRuntimeMeta(item) {
     if (!item || !item.pid) return '';
     const ports = Array.isArray(item.ports) ? item.ports.filter(Boolean) : [];
-    if (ports.length <= 1) {
-        return `PID: ${item.pid} | Port: ${ports[0] || 'none'}`;
+    const segments = [`PID: ${item.pid}`];
+
+    if (ports.length === 1) {
+        segments.push(`Port: ${ports[0]}`);
+    } else if (ports.length > 1) {
+        segments.push(`Ports: ${ports.join(', ')}`);
     }
-    return `PID: ${item.pid} | Ports: ${ports.join(', ')}`;
+
+    if (item.version && !['oracle', 'postgres'].includes(String(item.service_type || '').toLowerCase())) {
+        segments.push(`VER: ${item.version}`);
+    }
+
+    return segments.join(' | ');
+}
+
+function applyRuntimeVersion(row, item, type) {
+    if (!row || !item || !item.version) return;
+
+    const copyButtons = row.querySelectorAll('.copy-inline-btn');
+    const versionEl = copyButtons.length > 0 ? copyButtons[copyButtons.length - 1] : null;
+    if (!versionEl) return;
+
+    const currentText = (versionEl.innerText || '').trim();
+    const shouldReplaceUnknown = /unknown/i.test(currentText);
+    const shouldPreferRuntime = ['oracle', 'postgres'].includes(type);
+
+    if (!shouldReplaceUnknown && !shouldPreferRuntime) {
+        return;
+    }
+
+    versionEl.innerText = buildVersionLabel(item.version);
+    versionEl.setAttribute('onclick', `copyText(${JSON.stringify(item.version)}, "버전 정보 복사됨")`);
+}
+
+function applyRuntimeVersion(cardId, instanceId, item, type) {
+    if (!item || !item.version) return;
+
+    const versionEl = document.getElementById(`version-info-${cardId}-${instanceId}`);
+    if (!versionEl) return;
+
+    const currentText = (versionEl.innerText || '').trim();
+    const shouldReplaceUnknown = /unknown/i.test(currentText);
+    const shouldPreferRuntime = ['oracle', 'postgres'].includes(type);
+
+    if (!shouldReplaceUnknown && !shouldPreferRuntime) {
+        return;
+    }
+
+    const nextLabel = buildVersionLabel(item.version);
+    versionEl.innerText = nextLabel;
+    versionEl.setAttribute('onclick', `copyText(${JSON.stringify(item.version)}, "버전 정보 복사됨")`);
+}
+
+function applyRuntimeVersionResolved(row, item, type) {
+    if (!row || !item || !item.version) return;
+
+    const copyButtons = row.querySelectorAll('.copy-inline-btn');
+    const versionEl = copyButtons.length > 0 ? copyButtons[copyButtons.length - 1] : null;
+    if (!versionEl) return;
+
+    const currentText = (versionEl.innerText || '').trim();
+    const shouldReplaceUnknown = /unknown/i.test(currentText);
+    const shouldPreferRuntime = ['oracle', 'postgres'].includes(type);
+
+    if (!shouldReplaceUnknown && !shouldPreferRuntime) {
+        return;
+    }
+
+    versionEl.innerText = buildVersionLabel(item.version);
+    versionEl.setAttribute('onclick', `copyText(${JSON.stringify(item.version)}, "버전 정보 복사됨")`);
 }
 
 function findRuntimeItemForInstance(type, row, items) {
@@ -468,6 +538,36 @@ function findRuntimeItemForInstance(type, row, items) {
         _base: normalizeComparablePath(item.base_path || ''),
         _key: normalizeComparablePath(item.key || ''),
     }));
+
+    if (type === 'oracle') {
+        return normalizedItems.find(item => item._key === instanceName || item._key === displayName) || null;
+    }
+
+    if (type === 'postgres') {
+        const card = row.closest('.service-card');
+        const logText = card?.querySelector('.log-output')?.innerText || '';
+        const pathMatch = logText.match(/-D\s+(\S+)/);
+        const pidMatch = logText.match(/^\S+\s+(\d+)\s+.*(?:\/bin\/postgres\s+-D|\spostgres\s+-D)/m);
+        const runtimeDataPath = normalizeComparablePath(pathMatch ? pathMatch[1] : '');
+        const runtimePid = pidMatch ? pidMatch[1] : '';
+
+        if (runtimeDataPath) {
+            const matchedByPath = normalizedItems.find(item =>
+                item._key === runtimeDataPath || item._base === runtimeDataPath
+            );
+            if (matchedByPath) return matchedByPath;
+        }
+
+        if (runtimePid) {
+            const matchedByPid = normalizedItems.find(item => item.pid === runtimePid);
+            if (matchedByPid) return matchedByPid;
+        }
+
+        const matchedWithVersion = normalizedItems.find(item => item.version && item.version !== '?');
+        if (matchedWithVersion) return matchedWithVersion;
+
+        return normalizedItems[0] || null;
+    }
 
     if (instancePath) {
         const pathMatch = normalizedItems.find(item =>
@@ -540,6 +640,7 @@ async function fetchRuntimePorts(type, cardId) {
             }
 
             const matched = findRuntimeItemForInstance(type, row, data.items || []);
+            applyRuntimeVersionResolved(row, matched, type);
             const text = formatRuntimeMeta(matched);
             if (text) {
                 setRuntimeMeta(cardId, instanceId, text);

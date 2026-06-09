@@ -11,6 +11,7 @@ class RuntimeProcessPortInfo:
     pid: str
     ports: tuple[str, ...]
     base_path: str = ""
+    version: str = ""
 
 
 def _normalize_ports(raw_ports: str) -> tuple[str, ...]:
@@ -48,10 +49,11 @@ def parse_runtime_process_port_output(
         rows.append(
             RuntimeProcessPortInfo(
                 service_type=service_type,
-                key=fields.get("KEY", ""),
+                key=fields.get("KEY", "") or fields.get("DATA", "") or fields.get("SID", ""),
                 pid=pid,
                 ports=_normalize_ports(fields.get("PORT", "")),
                 base_path=fields.get("BASE", ""),
+                version=fields.get("VER", ""),
             )
         )
     return rows
@@ -68,6 +70,10 @@ def build_runtime_process_port_command(service_type: str, profile: OSProfile) ->
         return _build_dg_runtime_port_command(profile)
     if normalized == "pjs":
         return _build_pjs_runtime_port_command(profile)
+    if normalized == "oracle":
+        return _build_oracle_runtime_info_command(profile)
+    if normalized == "postgres":
+        return _build_postgres_runtime_info_command(profile)
     raise ValueError(f"Unsupported service type: {service_type}")
 
 
@@ -132,6 +138,42 @@ def _build_pjs_runtime_port_command(profile: OSProfile) -> str:
   key=$(echo "$l" | grep -oP 'jetty\\.base=\\K\\S+' | sed -E 's#.*/QS1/##; s#/svc$##')
   port=$(echo "$l" | grep -oP 'jetty\\.(http\\.)?port=\\K[0-9]+')
   printf "KEY=%s\\tPID=%s\\tPORT=%s\\tBASE=%s\\n" "$key" "$pid" "${{port:-}}" "$base"
+done | sort
+""".strip()
+
+
+def _build_oracle_runtime_info_command(profile: OSProfile) -> str:
+    return f"""
+if [ -f ~/.profile ]; then . ~/.profile 2>/dev/null || true; fi
+if [ -f ~/.bash_profile ]; then . ~/.bash_profile 2>/dev/null || true; fi
+if [ -f ~/.bashrc ]; then . ~/.bashrc 2>/dev/null || true; fi
+if [ -f ~/.kshrc ]; then . ~/.kshrc 2>/dev/null || true; fi
+lport=$(lsnrctl status 2>/dev/null | grep -oP 'PORT=\\K[0-9]+' | sort -un | paste -sd, -)
+{profile.ps_command} | grep '[o]ra_pmon' | while read -r l; do
+  pid=$(echo "$l" | awk '{{print $2}}')
+  sid=$(echo "$l" | grep -oP 'ora_pmon_\\K\\S+')
+  ver=$(ORACLE_SID=$sid sqlplus -s -L / as sysdba 2>/dev/null <<'EOF'
+set heading off feedback off pagesize 0
+select version from v$instance;
+exit
+EOF
+)
+  ver=$(printf "%s\\n" "$ver" | grep -Eo '[0-9]+(\\.[0-9]+)+' | head -n 1)
+  printf "KEY=%s\\tPID=%s\\tPORT=%s\\tVER=%s\\n" "$sid" "$pid" "${{lport:-}}" "${{ver:-}}"
+done | sort
+""".strip()
+
+
+def _build_postgres_runtime_info_command(profile: OSProfile) -> str:
+    return f"""
+{profile.ps_command} | grep '[p]ostgres' | grep -- '-D' | while read -r l; do
+  pid=$(echo "$l" | awk '{{print $2}}')
+  dgdir=$(echo "$l" | grep -oP '\\-D \\K\\S+')
+  port=$(sed -n '4p' "$dgdir/postmaster.pid" 2>/dev/null)
+  [ -z "$port" ] && port=$(grep -E '^\\s*port\\s*=' "$dgdir/postgresql.conf" 2>/dev/null | grep -oP '[0-9]+' | head -1)
+  ver=$(cat "$dgdir/PG_VERSION" 2>/dev/null)
+  [ -z "$ver" ] && ver=$(echo "$dgdir" | grep -oP 'PG_\\K[0-9]+' | sed -E 's/^([0-9])([0-9])$/\\1.\\2/')
+  printf "DATA=%s\\tPID=%s\\tPORT=%s\\tVER=%s\\tBASE=%s\\n" "$dgdir" "$pid" "${{port:-5432}}" "${{ver:-?}}" "$dgdir"
 done | sort
 """.strip()
 
